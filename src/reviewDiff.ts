@@ -1,5 +1,4 @@
 /**
- * reviewDiff.ts
  * SCM差分を取得してGitHub Copilot Chatに渡すコードレビュー処理
  * GitおよびSVNの両方に対応する
  */
@@ -56,7 +55,6 @@ function isBinary(content: string): boolean {
 /**
  * ファイル内容から擬似diff文字列を生成する
  * 新規ファイルは全行に '+' を、削除ファイルは全行に '-' を付与する
- *
  * @param relativePath - ヘッダ表示用の相対パス
  * @param content - ファイル内容
  * @param prefix - 行先頭に付与する文字('+' または '-')
