@@ -14,9 +14,6 @@
     "onCommand:code-reviewer.reviewDiff"
   ],
   "main": "./dist/extension.js",
-  "extensionDependencies": [
-    "vscode.git"
-  ],
   "contributes": {
     "commands": [
       {
@@ -29,6 +26,11 @@
         {
           "command": "code-reviewer.reviewDiff",
           "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "code-reviewer.reviewDiff",
+          "when": "scmProvider == svn",
           "group": "navigation"
         }
       ]
