@@ -13,7 +13,7 @@ export interface PromptTemplate {
 
 /**
  * 言語コードとプロンプト文言のテーブル
- * キーはcopilot-code-reviewer.reviewLanguageの enum 値（auto を除く）
+ * キーはcopilot-scm-code-reviewer.reviewLanguageの enum 値（auto を除く）
  */
 export const PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     ja: {
@@ -61,11 +61,11 @@ export const DEFAULT_LANG = 'en';
  * - 設定が "auto" の場合は vscode.env.language から判定
  * - 未対応言語は英語にフォールバックする
  *
- * @returns PROMPT_TEMPLATES のキー（一致するcopilot-code-reviewer.reviewLanguageのenum値）
+ * @returns PROMPT_TEMPLATES のキー（一致するcopilot-scm-code-reviewer.reviewLanguageのenum値）
  */
 export function resolveLanguage(): string {
     const configured = vscode.workspace
-        .getConfiguration('copilot-code-reviewer')
+        .getConfiguration('copilot-scm-code-reviewer')
         .get<string>('reviewLanguage', 'auto');
 
     if (configured !== 'auto') {

@@ -40,7 +40,7 @@ Specify the language used for the prompt sent to Copilot Chat.
 
 ```json
 {
-  "copilot-code-reviewer.reviewLanguage": "auto"
+  "copilot-scm-code-reviewer.reviewLanguage": "auto"
 }
 ```
 
@@ -64,7 +64,7 @@ If left empty, the built-in template for that language is used.
 
 ```json
 {
-  "copilot-code-reviewer.reviewPrompt.en": "Review the following diff with a focus on security.\n\n{{diff}}"
+  "copilot-scm-code-reviewer.reviewPrompt.en": "Review the following diff with a focus on security.\n\n{{diff}}"
 }
 ```
 
@@ -72,13 +72,13 @@ Available setting keys:
 
 | Setting Key | Language |
 |---|---|
-| `copilot-code-reviewer.reviewPrompt.ja` | Japanese |
-| `copilot-code-reviewer.reviewPrompt.en` | English |
-| `copilot-code-reviewer.reviewPrompt.zh-cn` | Chinese (Simplified) |
-| `copilot-code-reviewer.reviewPrompt.ko` | Korean |
-| `copilot-code-reviewer.reviewPrompt.fr` | French |
-| `copilot-code-reviewer.reviewPrompt.de` | German |
-| `copilot-code-reviewer.reviewPrompt.es` | Spanish |
+| `copilot-scm-code-reviewer.reviewPrompt.ja` | Japanese |
+| `copilot-scm-code-reviewer.reviewPrompt.en` | English |
+| `copilot-scm-code-reviewer.reviewPrompt.zh-cn` | Chinese (Simplified) |
+| `copilot-scm-code-reviewer.reviewPrompt.ko` | Korean |
+| `copilot-scm-code-reviewer.reviewPrompt.fr` | French |
+| `copilot-scm-code-reviewer.reviewPrompt.de` | German |
+| `copilot-scm-code-reviewer.reviewPrompt.es` | Spanish |
 
 ## Requirements
 

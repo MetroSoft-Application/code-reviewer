@@ -18,7 +18,7 @@ export function activate(context: vscode.ExtensionContext): void {
      * 引数はSCMビューから渡されるSourceControlResourceState
      */
     const reviewDiffCommand = vscode.commands.registerCommand(
-        'copilot-code-reviewer.reviewDiff',
+        'copilot-scm-code-reviewer.reviewDiff',
         reviewDiff
     );
 
