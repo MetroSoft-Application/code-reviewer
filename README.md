@@ -23,7 +23,7 @@ Supports both Git and SVN repositories.
 3. Select **"Review with Copilot"** from the context menu
 4. GitHub Copilot Chat opens with the diff pre-filled as a review request
 
-![demo](./code-**reviewer**/demo.gif)
+![demo](./resources/demo.gif)
 
 ### Review Multiple Files
 
