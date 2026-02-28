@@ -1,0 +1,43 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "npm run build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$tsc"
+            ]
+        },
+        {
+            "label": "watch",
+            "type": "shell",
+            "command": "npm run watch",
+            "group": "build",
+            "isBackground": true,
+            "problemMatcher": [
+                {
+                    "owner": "typescript",
+                    "fileLocation": "relative",
+                    "pattern": {
+                        "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+                        "file": 1,
+                        "location": 2,
+                        "severity": 3,
+                        "code": 4,
+                        "message": 5
+                    },
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": "^.*Starting compilation in watch mode...$",
+                        "endsPattern": "^.*Compilation complete\\. Watching for file changes\\.$"
+                    }
+                }
+            ]
+        }
+    ]
+}
