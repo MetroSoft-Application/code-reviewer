@@ -302,7 +302,7 @@ function buildPrompt(
      * なければカスタムテキストの末尾に差分ブロックを追記する
      */
     const customPrompt = vscode.workspace
-        .getConfiguration('code-reviewer')
+        .getConfiguration('copilot-code-reviewer')
         .get<string>(`reviewPrompt.${lang}`, '');
 
     if (customPrompt.trim()) {

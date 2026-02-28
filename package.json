@@ -1,5 +1,5 @@
 {
-  "name": "code-reviewer",
+  "name": "copilot-code-reviewer",
   "displayName": "Code Reviewer for Copilot",
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
   "version": "1.0.0",
@@ -16,25 +16,25 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:code-reviewer.reviewDiff"
+    "onCommand:copilot-code-reviewer.reviewDiff"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "code-reviewer.reviewDiff",
+        "command": "copilot-code-reviewer.reviewDiff",
         "title": "Review with Copilot"
       }
     ],
     "menus": {
       "scm/resourceState/context": [
         {
-          "command": "code-reviewer.reviewDiff",
+          "command": "copilot-code-reviewer.reviewDiff",
           "when": "scmProvider == git",
           "group": "navigation"
         },
         {
-          "command": "code-reviewer.reviewDiff",
+          "command": "copilot-code-reviewer.reviewDiff",
           "when": "scmProvider == svn",
           "group": "navigation"
         }
@@ -43,7 +43,7 @@
     "configuration": {
       "title": "Code Reviewer for Copilot",
       "properties": {
-        "code-reviewer.reviewLanguage": {
+        "copilot-code-reviewer.reviewLanguage": {
           "type": "string",
           "default": "auto",
           "enum": [
@@ -68,43 +68,43 @@
           ],
           "description": "Language used for the review request sent to Copilot Chat. When set to \"auto\", the language is determined by the VS Code UI language."
         },
-        "code-reviewer.reviewPrompt.ja": {
+        "copilot-code-reviewer.reviewPrompt.ja": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for Japanese (ja). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in Japanese template is used."
         },
-        "code-reviewer.reviewPrompt.en": {
+        "copilot-code-reviewer.reviewPrompt.en": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for English (en). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in English template is used."
         },
-        "code-reviewer.reviewPrompt.zh-cn": {
+        "copilot-code-reviewer.reviewPrompt.zh-cn": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for Chinese Simplified (zh-cn). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in template is used."
         },
-        "code-reviewer.reviewPrompt.ko": {
+        "copilot-code-reviewer.reviewPrompt.ko": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for Korean (ko). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in Korean template is used."
         },
-        "code-reviewer.reviewPrompt.fr": {
+        "copilot-code-reviewer.reviewPrompt.fr": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for French (fr). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in French template is used."
         },
-        "code-reviewer.reviewPrompt.de": {
+        "copilot-code-reviewer.reviewPrompt.de": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
           "description": "Custom prompt for German (de). Use {{diff}} as a placeholder for the diff content. If {{diff}} is omitted, the diff is appended at the end. If empty, the built-in German template is used."
         },
-        "code-reviewer.reviewPrompt.es": {
+        "copilot-code-reviewer.reviewPrompt.es": {
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",

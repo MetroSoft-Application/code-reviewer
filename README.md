@@ -23,7 +23,7 @@ Supports both Git and SVN repositories.
 3. Select **"Review with Copilot"** from the context menu
 4. GitHub Copilot Chat opens with the diff pre-filled as a review request
 
-![demo](./resources/demo.gif)
+![demo](./code-**reviewer**/demo.gif)
 
 ### Review Multiple Files
 
@@ -40,7 +40,7 @@ Specify the language used for the prompt sent to Copilot Chat.
 
 ```json
 {
-  "code-reviewer.reviewLanguage": "auto"
+  "copilot-code-reviewer.reviewLanguage": "auto"
 }
 ```
 
@@ -64,7 +64,7 @@ If left empty, the built-in template for that language is used.
 
 ```json
 {
-  "code-reviewer.reviewPrompt.en": "Review the following diff with a focus on security.\n\n{{diff}}"
+  "copilot-code-reviewer.reviewPrompt.en": "Review the following diff with a focus on security.\n\n{{diff}}"
 }
 ```
 
@@ -72,13 +72,13 @@ Available setting keys:
 
 | Setting Key | Language |
 |---|---|
-| `code-reviewer.reviewPrompt.ja` | Japanese |
-| `code-reviewer.reviewPrompt.en` | English |
-| `code-reviewer.reviewPrompt.zh-cn` | Chinese (Simplified) |
-| `code-reviewer.reviewPrompt.ko` | Korean |
-| `code-reviewer.reviewPrompt.fr` | French |
-| `code-reviewer.reviewPrompt.de` | German |
-| `code-reviewer.reviewPrompt.es` | Spanish |
+| `copilot-code-reviewer.reviewPrompt.ja` | Japanese |
+| `copilot-code-reviewer.reviewPrompt.en` | English |
+| `copilot-code-reviewer.reviewPrompt.zh-cn` | Chinese (Simplified) |
+| `copilot-code-reviewer.reviewPrompt.ko` | Korean |
+| `copilot-code-reviewer.reviewPrompt.fr` | French |
+| `copilot-code-reviewer.reviewPrompt.de` | German |
+| `copilot-code-reviewer.reviewPrompt.es` | Spanish |
 
 ## Requirements
 
