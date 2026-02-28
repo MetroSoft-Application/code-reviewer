@@ -4,6 +4,7 @@
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
   "version": "1.0.0",
   "publisher": "MetroSoft-Application",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
