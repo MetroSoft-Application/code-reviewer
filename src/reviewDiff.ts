@@ -207,21 +207,6 @@ function getSvnDiffOutput(
 }
 
 /**
- * `svn diff -r BASE:HEAD` でリモートの変更差分テキストを取得する
- * Remote Changes (ローカル未変更だがリポジトリ側で変更済み) の場合に使用する
- */
-function getSvnRemoteDiffOutput(
-    filePath: string,
-    scmRoot: string
-): Promise<string | undefined> {
-    return new Promise(resolve => {
-        cp.exec(`svn diff -r BASE:HEAD "${filePath}"`, { cwd: scmRoot }, (err, stdout) => {
-            resolve(err ? undefined : (stdout.trim() || undefined));
-        });
-    });
-}
-
-/**
  * SVNリポジトリのファイル差分テキストを取得する
  * - 'M'(変更): svn diff を実行
  * - 'A'/'?'(新規/未追跡): ファイル内容を読み全行'+'のdiffを生成
@@ -263,13 +248,7 @@ async function getDiffTextSvn(
     }
 
     // 通常の変更ファイル
-    // svn diff でローカル差分を取得し、空の場合は Remote Changes のケースとして
-    // svn diff -r BASE:HEAD にフォールバックする
-    const localDiff = await getSvnDiffOutput(filePath, scmRoot);
-    if (localDiff) {
-        return localDiff;
-    }
-    return getSvnRemoteDiffOutput(filePath, scmRoot);
+    return getSvnDiffOutput(filePath, scmRoot);
 }
 
 /**
@@ -516,7 +495,12 @@ async function findRepoRootForSvnPath(svnFilePath: string): Promise<string | und
     const folders = vscode.workspace.workspaceFolders ?? [];
 
     for (const folder of folders) {
-        const scmInfo = findScmRoot(folder.uri.fsPath);
+        /*
+         * findScmRoot は内部で path.dirname(filePath) を起点に探索するため、
+         * ディレクトリパスをそのまま渡すと1階層上から検索してしまう。
+         * ダミーのファイル名を結合することで folder 自身を起点にする。
+         */
+        const scmInfo = findScmRoot(path.join(folder.uri.fsPath, '_'));
         if (!scmInfo || scmInfo.type !== 'svn') {
             continue;
         }
