@@ -7,9 +7,20 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { GitExtension, Repository } from './api/git';
-// Status は const enum のため type-only import では使用できない
-import { Status } from './api/git';
 import { PROMPT_TEMPLATES, resolveLanguage } from './promptTemplates';
+
+/*
+ * Status は git.d.ts で const enum として定義されているため、
+ * webpack (ts-loader) のモジュール単体トランスパイル時はインライン展開されず
+ * インストール版では undefined になる。
+ * そのため使用する値をローカル定数として定義する。
+ */
+const FileStatus = {
+    INDEX_DELETED: 2,
+    DELETED: 6,
+    UNTRACKED: 7,
+    INTENT_TO_ADD: 9,
+} as const;
 
 /*
  * 差分テキストの上限サイズ(文字数)
@@ -107,14 +118,14 @@ async function getDiffTextGit(
     const change = allChanges.find(c => c.uri.fsPath === filePath);
     const status = change?.status;
 
-    if (status === Status.UNTRACKED || status === Status.INTENT_TO_ADD) {
+    if (status === FileStatus.UNTRACKED || status === FileStatus.INTENT_TO_ADD) {
         const rawContent = await vscode.workspace.fs.readFile(resourceUri);
         const content = Buffer.from(rawContent).toString('utf8');
         if (isBinary(content)) { return undefined; }
         return buildPseudoDiff(relativePath, content, '+', '/dev/null', `b/${relativePath}`);
     }
 
-    if (status === Status.DELETED || status === Status.INDEX_DELETED) {
+    if (status === FileStatus.DELETED || status === FileStatus.INDEX_DELETED) {
         const content = await repo.show('HEAD', filePath);
         if (isBinary(content)) {
             return undefined;
