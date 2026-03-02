@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff } from './reviewDiff';
+import { reviewDiff, reviewRevision } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -22,7 +22,16 @@ export function activate(context: vscode.ExtensionContext): void {
         reviewDiff
     );
 
-    context.subscriptions.push(reviewDiffCommand);
+    /*
+     * SVN FILE HISTORY (svn-scm) ビューからのコードレビューコマンドを登録する
+     * 引数はsvn-scmのILogTreeItem (contextValue == "diffable")
+     */
+    const reviewRevisionCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewRevision',
+        reviewRevision
+    );
+
+    context.subscriptions.push(reviewDiffCommand, reviewRevisionCommand);
 }
 
 /**

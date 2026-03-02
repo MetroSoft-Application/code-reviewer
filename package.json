@@ -2,7 +2,7 @@
   "name": "copilot-scm-code-reviewer",
   "displayName": "Code Reviewer for Copilot",
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "MetroSoft-Application",
   "icon": "resources/icon.png",
   "repository": {
@@ -23,13 +23,18 @@
     "diff"
   ],
   "activationEvents": [
-    "onCommand:copilot-scm-code-reviewer.reviewDiff"
+    "onCommand:copilot-scm-code-reviewer.reviewDiff",
+    "onCommand:copilot-scm-code-reviewer.reviewRevision"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "copilot-scm-code-reviewer.reviewDiff",
+        "title": "Review with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewRevision",
         "title": "Review with Copilot"
       }
     ],
@@ -43,6 +48,18 @@
         {
           "command": "copilot-scm-code-reviewer.reviewDiff",
           "when": "scmProvider == svn",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "copilot-scm-code-reviewer.reviewRevision",
+          "when": "view == itemlog && viewItem == diffable",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewRevision",
+          "when": "view == repolog && viewItem == diffable",
           "group": "navigation"
         }
       ]

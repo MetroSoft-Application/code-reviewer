@@ -207,6 +207,21 @@ function getSvnDiffOutput(
 }
 
 /**
+ * `svn diff -r BASE:HEAD` でリモートの変更差分テキストを取得する
+ * Remote Changes (ローカル未変更だがリポジトリ側で変更済み) の場合に使用する
+ */
+function getSvnRemoteDiffOutput(
+    filePath: string,
+    scmRoot: string
+): Promise<string | undefined> {
+    return new Promise(resolve => {
+        cp.exec(`svn diff -r BASE:HEAD "${filePath}"`, { cwd: scmRoot }, (err, stdout) => {
+            resolve(err ? undefined : (stdout.trim() || undefined));
+        });
+    });
+}
+
+/**
  * SVNリポジトリのファイル差分テキストを取得する
  * - 'M'(変更): svn diff を実行
  * - 'A'/'?'(新規/未追跡): ファイル内容を読み全行'+'のdiffを生成
@@ -248,7 +263,13 @@ async function getDiffTextSvn(
     }
 
     // 通常の変更ファイル
-    return getSvnDiffOutput(filePath, scmRoot);
+    // svn diff でローカル差分を取得し、空の場合は Remote Changes のケースとして
+    // svn diff -r BASE:HEAD にフォールバックする
+    const localDiff = await getSvnDiffOutput(filePath, scmRoot);
+    if (localDiff) {
+        return localDiff;
+    }
+    return getSvnRemoteDiffOutput(filePath, scmRoot);
 }
 
 /**
@@ -401,6 +422,234 @@ export async function reviewDiff(
     }
 
     const prompt = buildPrompt(diffs, skippedCount);
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: prompt,
+    });
+}
+
+/**
+ * svn diff で特定リビジョンの差分テキストを取得する（ローカルパス用）
+ * `svn diff -c REVISION "FILEPATH"` を実行する
+ */
+function getSvnRevisionDiff(
+    filePath: string,
+    revision: string,
+    scmRoot: string
+): Promise<string | undefined> {
+    return new Promise(resolve => {
+        cp.exec(`svn diff -c ${revision} "${filePath}"`, { cwd: scmRoot }, (err, stdout) => {
+            resolve(err ? undefined : (stdout.trim() || undefined));
+        });
+    });
+}
+
+/**
+ * svn diff で特定リビジョンの差分テキストを取得する（SVN URL用）
+ * repolog の CommitDetail から直接 SVN URL を指定して実行する
+ */
+function getSvnRevisionDiffByUrl(
+    svnUrl: string,
+    revision: string
+): Promise<string | undefined> {
+    return new Promise(resolve => {
+        cp.exec(`svn diff -c ${revision} "${svnUrl}"`, (err, stdout) => {
+            resolve(err ? undefined : (stdout.trim() || undefined));
+        });
+    });
+}
+
+/**
+ * `svn info --xml TARGET` からリポジトリルート URL を取得する
+ * @param target - ローカル WC パスまたは SVN URL
+ */
+function getSvnRepoRoot(target: string): Promise<string | undefined> {
+    return new Promise(resolve => {
+        cp.exec(`svn info --xml "${target}"`, (err, stdout) => {
+            if (err) { resolve(undefined); return; }
+            const match = stdout.match(/<root>(.*?)<\/root>/);
+            resolve(match ? match[1] : undefined);
+        });
+    });
+}
+
+/**
+ * SVN FILE HISTORY ビュー (svn-scm拡張機能) の右クリックから呼び出されるコマンドハンドラー
+ * 選択されたコミットのリビジョン差分を取得してCopilot Chatに送信する
+ *
+ * svn-scm は外部APIを公開しないため、TreeItemのdataプロパティを
+ * ダックタイピングで参照してリビジョン番号を抽出する。
+ *
+ * ビュー別の TreeItem 構造:
+ * - itemlog (FILE HISTORY): Commit ノード - data.revision がリビジョン番号
+ *   → 対象ファイルはアクティブエディタのURIから取得
+ * - repolog (REPOSITORIES): CommitDetail ノード - data._ がSVNパス、parent.data.revision がリビジョン番号
+ *   → parent.parent.data.svnTarget からSVN URLを構築して diff を実行
+ *
+ * @param treeItem - svn-scm の ILogTreeItem (contextValue == "diffable")
+ */
+export async function reviewRevision(treeItem: unknown): Promise<void> {
+    const item = treeItem as Record<string, any>;
+
+    /*
+     * repolog の CommitDetail ノードは ISvnLogEntryPath を data に持ち、
+     * data._ で SVN 上のファイルパス (/trunk/dev/test1.txt 等) を参照できる。
+     * この場合はアクティブエディタに依存せず SVN URL を直接構築する。
+     */
+    const svnFilePath: string | undefined = item?.data?._;
+
+    if (svnFilePath) {
+        await reviewRevisionBySvnPath(item, svnFilePath);
+    } else {
+        await reviewRevisionByActiveEditor(item);
+    }
+}
+
+/**
+ * ワークスペースフォルダ内の SVN WC を検索し、svnFilePath を含む
+ * リポジトリルート URL を返す
+ * 複数のワークスペースフォルダを順に試みる
+ *
+ * @param svnFilePath - SVN 上のファイルパス (例: /trunk/dev/test1.txt)
+ */
+async function findRepoRootForSvnPath(svnFilePath: string): Promise<string | undefined> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+
+    for (const folder of folders) {
+        const scmInfo = findScmRoot(folder.uri.fsPath);
+        if (!scmInfo || scmInfo.type !== 'svn') {
+            continue;
+        }
+        const repoRoot = await getSvnRepoRoot(scmInfo.root);
+        if (repoRoot) {
+            return repoRoot;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * repolog (REPOSITORIES ビュー) 用の差分取得処理
+ * CommitDetail ノードの data._ (SVN パス) と親ノードの revision から
+ * SVN URL を構築して svn diff -c を実行する
+ */
+async function reviewRevisionBySvnPath(
+    item: Record<string, any>,
+    svnFilePath: string
+): Promise<void> {
+    // CommitDetail の親 (Commit) からリビジョンを取得する
+    const revision: string | undefined = item?.parent?.data?.revision;
+    if (!revision) {
+        vscode.window.showErrorMessage('Could not determine the SVN revision from the selected item.');
+        return;
+    }
+
+    // ワークスペースの SVN WC からリポジトリルート URL を取得する
+    const repoRoot = await findRepoRootForSvnPath(svnFilePath);
+    if (!repoRoot) {
+        vscode.window.showErrorMessage(
+            'Could not determine the SVN repository root. ' +
+            'Make sure an SVN working copy is open in the workspace and SVN is installed.'
+        );
+        return;
+    }
+
+    // SVN ファイルの完全 URL を構築する
+    // repoRoot (例: file:///c:/svn) + svnFilePath (例: /trunk/dev/test1.txt)
+    const fullSvnUrl = repoRoot + svnFilePath;
+    const displayName = `${svnFilePath} (r${revision})`;
+
+    let diffText: string | undefined;
+    try {
+        diffText = await getSvnRevisionDiffByUrl(fullSvnUrl, revision);
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to retrieve diff for revision ${revision}: ${svnFilePath}`);
+        return;
+    }
+
+    await sendDiffToChat(diffText, displayName, revision);
+}
+
+/**
+ * itemlog (FILE HISTORY ビュー) 用の差分取得処理
+ * アクティブエディタのファイルパスと Commit ノードのリビジョンで diff を実行する
+ */
+async function reviewRevisionByActiveEditor(
+    item: Record<string, any>
+): Promise<void> {
+    // Commit ノードの data.revision またはフォールバック
+    const revision: string | undefined =
+        item?.data?.revision ??
+        item?.data?.commit?.revision ??
+        item?.parent?.data?.revision;
+
+    if (!revision) {
+        vscode.window.showErrorMessage('Could not determine the SVN revision from the selected item.');
+        return;
+    }
+
+    // アクティブエディタのファイル URI を取得する
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    if (!activeUri) {
+        vscode.window.showErrorMessage('No active file. Please open the file whose history you want to review.');
+        return;
+    }
+
+    const scmInfo = findScmRoot(activeUri.fsPath);
+    if (!scmInfo || scmInfo.type !== 'svn') {
+        vscode.window.showErrorMessage('The active file does not belong to an SVN repository.');
+        return;
+    }
+
+    const filePath = activeUri.fsPath;
+    const displayName = `${vscode.workspace.asRelativePath(activeUri)} (r${revision})`;
+
+    let diffText: string | undefined;
+    try {
+        diffText = await getSvnRevisionDiff(filePath, revision, scmInfo.root);
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to retrieve diff for revision ${revision}: ${filePath}`);
+        return;
+    }
+
+    await sendDiffToChat(diffText, displayName, revision);
+}
+
+/**
+ * 差分テキストをバリデートして Copilot Chat に送信する共通処理
+ */
+async function sendDiffToChat(
+    diffText: string | undefined,
+    displayName: string,
+    revision: string
+): Promise<void> {
+    if (!diffText) {
+        vscode.window.showInformationMessage(`No diff found for revision ${revision}: ${displayName}`);
+        return;
+    }
+
+    if (isBinary(diffText)) {
+        vscode.window.showInformationMessage(`Diff contains binary content and cannot be reviewed: ${displayName}`);
+        return;
+    }
+
+    const diffs: Array<{ fileName: string; diffText: string; }> = [];
+
+    if (diffText.length > DIFF_SIZE_LIMIT) {
+        const answer = await vscode.window.showWarningMessage(
+            `Diff size exceeds the limit (50KB). Send only the first 50KB?\nFile: ${displayName}`,
+            'Send first 50KB',
+            'Cancel'
+        );
+        if (answer !== 'Send first 50KB') {
+            return;
+        }
+        diffs.push({ fileName: displayName, diffText: diffText.slice(0, DIFF_SIZE_LIMIT) });
+    } else {
+        diffs.push({ fileName: displayName, diffText });
+    }
+
+    const prompt = buildPrompt(diffs, 0);
 
     await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: prompt,

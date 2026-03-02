@@ -12,6 +12,8 @@ Supports both Git and SVN repositories.
 - **Multi-Language Prompts**: Supports Japanese, English, Chinese (Simplified), Korean, French, German, and Spanish
 - **Automatic Language Detection**: Selects the review language automatically based on the VS Code UI language
 - **Custom Prompts**: Configure your own review prompt per language
+- **SVN History Review**: Right-click a commit in the SVN FILE HISTORY or REPOSITORIES view (svn-scm extension) and select "Review with Copilot" to review a specific revision's diff
+- **Remote Changes Support**: Supports reviewing incoming remote changes shown in the SVN SCM view
 - **Diff Size Limit**: Warns and handles gracefully when a diff exceeds 50KB
 
 ## Usage
@@ -31,6 +33,14 @@ Supports both Git and SVN repositories.
 2. Right-click one of the selected files
 3. Select **"Review with Copilot"**
 4. All selected diffs are sent to Copilot Chat in a single request
+
+### Review SVN Revision History
+
+1. Install the [svn-scm](https://marketplace.visualstudio.com/items?itemName=johnstoncode.svn-scm) extension
+2. Open the **FILE HISTORY** or **REPOSITORIES** view in the SVN activity bar
+3. Right-click a commit entry
+4. Select **"Review with Copilot"**
+5. GitHub Copilot Chat opens with the revision diff pre-filled
 
 ## Configuration
 
