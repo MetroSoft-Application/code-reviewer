@@ -7,7 +7,7 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { GitExtension, Repository } from './api/git';
-import { PROMPT_TEMPLATES, resolveLanguage } from './promptTemplates';
+import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage } from './promptTemplates';
 
 /*
  * Status は git.d.ts で const enum として定義されているため、
@@ -634,6 +634,59 @@ async function sendDiffToChat(
     }
 
     const prompt = buildPrompt(diffs, 0);
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: prompt,
+    });
+}
+
+/**
+ * ワークスペース内の最初の SVN ワーキングコピー(WC)ルートパスを返す
+ *
+ * @returns SVN WC ルートのローカルパス。見つからない場合は undefined
+ */
+function findSvnWcRoot(): string | undefined {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders) { return undefined; }
+
+    for (const folder of folders) {
+        const dummyPath = path.join(folder.uri.fsPath, '_');
+        const scmInfo = findScmRoot(dummyPath);
+        if (scmInfo?.type === 'svn') {
+            return scmInfo.root;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * SVN repolog のコミット行ノード（viewItem == "commit"）から呼び出される
+ * コミット全体の差分は大量になりうるため、Copilot 自身に svn diff を
+ * 実行させるプロンプトを構築してチャットに渡す
+ *
+ * @param treeItem - svn-scm の repolog コミット行 TreeItem（contextValue == "commit"）
+ */
+export async function reviewCommit(treeItem: unknown): Promise<void> {
+    const item = treeItem as Record<string, any>;
+
+    const revision: string | undefined = item?.data?.revision;
+    if (!revision) {
+        vscode.window.showErrorMessage('Could not determine the SVN revision from the selected commit.');
+        return;
+    }
+
+    const author: string = item?.data?.author ?? '';
+    const msg: string = (item?.data?.msg ?? '').trim().split('\n')[0]; // 1行目のみ使用
+
+    const wcRoot = findSvnWcRoot();
+    if (!wcRoot) {
+        vscode.window.showErrorMessage('Could not find an SVN working copy in the workspace.');
+        return;
+    }
+
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.commitHeader(revision, author, msg, wcRoot);
 
     await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: prompt,

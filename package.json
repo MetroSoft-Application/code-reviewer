@@ -24,7 +24,8 @@
   ],
   "activationEvents": [
     "onCommand:copilot-scm-code-reviewer.reviewDiff",
-    "onCommand:copilot-scm-code-reviewer.reviewRevision"
+    "onCommand:copilot-scm-code-reviewer.reviewRevision",
+    "onCommand:copilot-scm-code-reviewer.reviewCommit"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -36,6 +37,10 @@
       {
         "command": "copilot-scm-code-reviewer.reviewRevision",
         "title": "Review with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewCommit",
+        "title": "Review Commit with Copilot"
       }
     ],
     "menus": {
@@ -60,6 +65,11 @@
         {
           "command": "copilot-scm-code-reviewer.reviewRevision",
           "when": "view == repolog && viewItem == diffable",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewCommit",
+          "when": "view == repolog && viewItem == commit",
           "group": "navigation"
         }
       ]
