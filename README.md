@@ -13,6 +13,8 @@ Supports both Git and SVN repositories.
 - **Automatic Language Detection**: Selects the review language automatically based on the VS Code UI language
 - **Custom Prompts**: Configure your own review prompt per language
 - **SVN History Review**: Right-click a commit in the SVN FILE HISTORY or REPOSITORIES view (svn-scm extension) and select "Review with Copilot" to review a specific revision's diff
+- **SVN Commit Review**: Right-click a commit row in the SVN REPOSITORIES view and select "Review Commit with Copilot" — Copilot executes `svn diff -c` itself and reviews the entire commit diff
+- **SVN Multi-Commit Review**: Add multiple commits to a review list via "Add to Review List", then run "Review Multi Commit with Copilot" to review all accumulated commits together in one request. Revisions are always sent in ascending order regardless of the order they were added
 - **Remote Changes Support**: Supports reviewing incoming remote changes shown in the SVN SCM view
 - **Diff Size Limit**: Warns and handles gracefully when a diff exceeds 50KB
 
@@ -41,6 +43,23 @@ Supports both Git and SVN repositories.
 3. Right-click a commit entry
 4. Select **"Review with Copilot"**
 5. GitHub Copilot Chat opens with the revision diff pre-filled
+
+### Review a Single SVN Commit (Large Diff)
+
+1. Open the **REPOSITORIES** view in the SVN activity bar
+2. Right-click a commit row (not a file node)
+3. Select **"Review Commit with Copilot"**
+4. GitHub Copilot Chat opens — Copilot executes `svn diff -c {revision}` itself and reviews the full commit diff without the 50KB size limit
+
+### Review Multiple SVN Commits Together
+
+1. Open the **REPOSITORIES** view in the SVN activity bar
+2. Right-click one or more commit rows and select **"Add to Review List"** to accumulate commits
+   - Duplicate revisions are automatically ignored
+3. Once all desired commits are added, right-click any commit row
+4. Select **"Review Multi Commit with Copilot"**
+5. GitHub Copilot Chat opens with all accumulated commits — Copilot executes all `svn diff -c` commands in revision order and reviews the diffs together
+6. The review list is automatically cleared after the request is sent
 
 ## Configuration
 
