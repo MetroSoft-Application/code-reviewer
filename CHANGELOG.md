@@ -1,3 +1,8 @@
+## [1.0.6]
+
+- Added "Review Section with Copilot" to Git SCM section headers (Changes / Staged Changes)
+- Added command-based batch review prompt for Git sections — Copilot executes `git -C "<repo>" diff` / `git -C "<repo>" diff --cached` to collect diffs
+
 ## [1.0.5]
 
 - Added "Review Commit with Copilot" to SVN REPOSITORIES view commit rows — Copilot executes `svn diff -c` itself, bypassing the 50KB diff size limit

@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit } from './reviewDiff';
+import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -57,12 +57,21 @@ export function activate(context: vscode.ExtensionContext): void {
         reviewMultiCommit
     );
 
+    /*
+     * SCM の変更セクション（変更/ステージ）から一括レビューするコマンドを登録する
+     */
+    const reviewGitGroupsCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewGitGroups',
+        reviewGitGroups
+    );
+
     context.subscriptions.push(
         reviewDiffCommand,
         reviewRevisionCommand,
         reviewCommitCommand,
         addToReviewListCommand,
-        reviewMultiCommitCommand
+        reviewMultiCommitCommand,
+        reviewGitGroupsCommand
     );
 }
 

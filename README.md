@@ -7,6 +7,7 @@ Supports both Git and SVN repositories.
 
 - **Context Menu Integration**: Right-click any file in the SCM view and select "Review with Copilot" to request a code review instantly
 - **Multi-Selection Support**: Select multiple files and request a batch review in one action
+- **Section Review (Git)**: Right-click the **Changes** or **Staged Changes** section header and select "Review Section with Copilot" to send Git diff commands for batch review
 - **Git and SVN Support**: Automatically detects Git and SVN repositories and retrieves the appropriate diff
 - **New and Deleted File Support**: Correctly handles untracked (new) files and deleted files
 - **Multi-Language Prompts**: Supports Japanese, English, Chinese (Simplified), Korean, French, German, and Spanish
@@ -35,6 +36,13 @@ Supports both Git and SVN repositories.
 2. Right-click one of the selected files
 3. Select **"Review with Copilot"**
 4. All selected diffs are sent to Copilot Chat in a single request
+
+### Review Git Sections in Batch (Changes / Staged Changes)
+
+1. Open the SCM view (Source Control panel)
+2. Right-click the **Changes** section or **Staged Changes** section header
+3. Select **"Review Section with Copilot"**
+4. Copilot Chat opens with Git commands for the selected sections (for example, `git -C "<repo>" diff` / `git -C "<repo>" diff --cached`) so Copilot can collect and review all diffs in batch
 
 ### Review SVN Revision History
 

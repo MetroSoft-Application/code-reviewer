@@ -327,20 +327,179 @@ function buildPrompt(
 }
 
 /**
+ * SCM リソースグループ情報を扱うための最小型定義
+ *
+ * VS Code の SCM メニュー引数は公開API型が限定的なため、
+ * 必要なプロパティのみをダックタイピングで参照する。
+ */
+type GitScmGroup = {
+    /** グループID（例: workingTree / index） */
+    id?: string;
+    /** 表示ラベル（例: Changes / Staged Changes） */
+    label?: string;
+    /** グループ配下のリソース一覧 */
+    resourceStates?: vscode.SourceControlResourceState[];
+};
+
+/**
+ * SCM リソースグループを「ステージ済み」または「未ステージ」に判定する
+ *
+ * @param group - SCM リソースグループ
+ * @returns 判定結果（'staged' | 'unstaged'）。判定不能時は undefined
+ */
+function resolveGitGroupKind(group: GitScmGroup): 'staged' | 'unstaged' | undefined {
+    const id = (group.id ?? '').toLowerCase();
+    const label = (group.label ?? '').toLowerCase();
+
+    if (id.includes('index') || id.includes('staged') || label.includes('staged') || label.includes('ステージ')) {
+        return 'staged';
+    }
+
+    if (
+        id.includes('workingtree') ||
+        id.includes('working_tree') ||
+        id.includes('working') ||
+        id.includes('changes') ||
+        label.includes('changes') ||
+        label.includes('変更')
+    ) {
+        return 'unstaged';
+    }
+
+    return undefined;
+}
+
+/**
+ * SCM リソースグループから Git リポジトリルートを取得する
+ *
+ * @param group - SCM リソースグループ
+ * @param gitAPI - vscode.git API
+ * @returns リポジトリルートのローカルパス。特定できない場合は undefined
+ */
+function getGitRepoRootFromGroup(
+    group: GitScmGroup,
+    gitAPI: ReturnType<GitExtension['getAPI']>
+): string | undefined {
+    const uri = group.resourceStates?.[0]?.resourceUri;
+    if (!uri) {
+        return undefined;
+    }
+
+    const repo = getRepositoryForUri(gitAPI, uri);
+    return repo?.rootUri.fsPath;
+}
+
+/**
+ * Git セクション一括レビュー用のコマンド実行プロンプトを構築する
+ *
+ * @param commands - Copilot に実行させる git コマンド一覧
+ * @returns Chat 送信用プロンプト文字列
+ */
+function buildGitGroupCommandPrompt(commands: string[]): string {
+    const lang = resolveLanguage();
+
+    const textByLang: Record<string, { intro: string; run: string; done: string; }> = {
+        ja: {
+            intro: 'Source Control の選択セクション（変更/ステージ）の差分をまとめてコードレビューしてください。',
+            run: '以下のコマンドをターミナルですべて実行して差分を収集してください。',
+            done: '全差分を収集したら、それらを一括でレビューし、各ファイルについて問題点・改善案・良い点を具体的に指摘してください。',
+        },
+        en: {
+            intro: 'Please review diffs from the selected Source Control sections (Changes/Staged Changes) together.',
+            run: 'Run all commands below in the terminal to collect the diffs.',
+            done: 'After collecting all diffs, review them in one batch and for each file point out issues, improvements, and good points specifically.',
+        },
+    };
+
+    const text = textByLang[lang] ?? textByLang.en;
+    return [
+        text.intro,
+        '',
+        text.run,
+        '```',
+        ...commands,
+        '```',
+        '',
+        text.done,
+    ].join('\n');
+}
+
+/**
+ * SCM のリソースグループ（変更/ステージ）から呼び出される Git 一括レビューコマンド。
+ * 選択されたグループに応じた git diff コマンド群を Copilot Chat に渡し、
+ * Copilot 側で差分を取得して一括レビューさせる。
+ */
+export async function reviewGitGroups(
+    group: unknown,
+    ...selectedGroups: unknown[]
+): Promise<void> {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        vscode.window.showErrorMessage('Git API is not available.');
+        return;
+    }
+
+    const targets = [group, ...selectedGroups]
+        .filter((item): item is GitScmGroup => !!item)
+        .filter((item, index, list) =>
+            list.findIndex(g => (g.id ?? '') === (item.id ?? '') && (g.label ?? '') === (item.label ?? '')) === index
+        );
+
+    if (targets.length === 0) {
+        vscode.window.showWarningMessage('No SCM sections were selected.');
+        return;
+    }
+
+    const commands = new Set<string>();
+
+    for (const target of targets) {
+        const kind = resolveGitGroupKind(target);
+        if (!kind) {
+            continue;
+        }
+
+        const repoRoot = getGitRepoRootFromGroup(target, gitAPI);
+        if (!repoRoot) {
+            continue;
+        }
+
+        if (kind === 'staged') {
+            commands.add(`git -C "${repoRoot}" diff --cached`);
+        } else {
+            commands.add(`git -C "${repoRoot}" diff`);
+        }
+    }
+
+    if (commands.size === 0) {
+        vscode.window.showWarningMessage(
+            'Could not resolve selected sections to Git diff commands. Try right-clicking on "Changes" or "Staged Changes".'
+        );
+        return;
+    }
+
+    const prompt = buildGitGroupCommandPrompt([...commands]);
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: prompt,
+    });
+}
+
+/**
  * SCMコンテキストメニューから呼び出されるコマンドハンドラー
  * 選択されたリソースの差分を取得してCopilot Chatに送信する
  *
  * @param resourceState - 右クリックされたリソース(単体)
- * @param resourceStates - 複数選択されたリソースの配列
+ * @param resourceStates - 追加で渡される選択リソース(可変引数)
  */
 export async function reviewDiff(
     resourceState: vscode.SourceControlResourceState,
-    resourceStates: vscode.SourceControlResourceState[]
+    ...resourceStates: vscode.SourceControlResourceState[]
 ): Promise<void> {
-    const targets =
-        resourceStates && resourceStates.length > 0
-            ? resourceStates
-            : [resourceState];
+    const targets = [resourceState, ...resourceStates]
+        .filter((state): state is vscode.SourceControlResourceState => !!state)
+        .filter((state, index, list) =>
+            list.findIndex(s => s.resourceUri.toString() === state.resourceUri.toString()) === index
+        );
 
     /*
      * vscode.git APIはオプショナルとして取得する
