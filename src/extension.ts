@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff, reviewRevision, reviewCommit } from './reviewDiff';
+import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -40,7 +40,30 @@ export function activate(context: vscode.ExtensionContext): void {
         reviewCommit
     );
 
-    context.subscriptions.push(reviewDiffCommand, reviewRevisionCommand, reviewCommitCommand);
+    /*
+     * SVN repolog のコミット行ノードをレビューリストに追加するコマンドを登録する
+     * 引数はsvn-scmのILogTreeItem (contextValue == "commit")
+     */
+    const addToReviewListCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.addToReviewList',
+        addToReviewList
+    );
+
+    /*
+     * レビューリストに登録されたコミットをまとめてレビューするコマンドを登録する
+     */
+    const reviewMultiCommitCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewMultiCommit',
+        reviewMultiCommit
+    );
+
+    context.subscriptions.push(
+        reviewDiffCommand,
+        reviewRevisionCommand,
+        reviewCommitCommand,
+        addToReviewListCommand,
+        reviewMultiCommitCommand
+    );
 }
 
 /**

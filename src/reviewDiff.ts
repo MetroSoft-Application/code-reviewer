@@ -7,7 +7,7 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { GitExtension, Repository } from './api/git';
-import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage } from './promptTemplates';
+import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry } from './promptTemplates';
 
 /*
  * Status は git.d.ts で const enum として定義されているため、
@@ -691,4 +691,82 @@ export async function reviewCommit(treeItem: unknown): Promise<void> {
     await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: prompt,
     });
+}
+
+/** レビュー対象コミットリスト（モジュールスコープで管理） */
+const reviewList: ReviewListEntry[] = [];
+
+/**
+ * SVN repolog のコミット行ノードをレビューリストに追加する
+ * 複数選択時は selectedItems（第2引数）の全アイテムを追加する。
+ * 重複チェックあり。追加後に hasReviewList コンテキストキーを true に設定する。
+ *
+ * @param treeItem      - 右クリックされた TreeItem（contextValue == "commit"）
+ * @param selectedItems - 複数選択時の全選択アイテム配列（VS Code が自動的に渡す）
+ */
+export async function addToReviewList(treeItem: unknown, selectedItems?: unknown[]): Promise<void> {
+    // 複数選択がある場合はそちらを使い、単一クリックの場合は treeItem を配列化する
+    const targets: unknown[] = (selectedItems && selectedItems.length > 0) ? selectedItems : [treeItem];
+    let addedCount = 0;
+    for (const target of targets) {
+        const item = target as Record<string, any>;
+        const revision: string | undefined = item?.data?.revision;
+        if (!revision) {
+            continue;
+        }
+        if (reviewList.some(e => e.revision === revision)) {
+            continue;
+        }
+        const author: string = item?.data?.author ?? '';
+        const msg: string = (item?.data?.msg ?? '').trim().split('\n')[0];
+        reviewList.push({ revision, author, msg });
+        addedCount++;
+    }
+    if (addedCount === 0) {
+        vscode.window.showInformationMessage('No new revisions were added (already in list or invalid).');
+        return;
+    }
+    await vscode.commands.executeCommand('setContext', 'copilot-scm-code-reviewer.hasReviewList', true);
+    vscode.window.showInformationMessage(`Added ${addedCount} commit(s) to review list. (total: ${reviewList.length})`);
+}
+
+/**
+ * レビューリストに登録されたコミットをまとめて Copilot Chat でレビューする
+ * selectedItems（複数選択）がある場合はそれを優先して reviewList に統合する。
+ * 何も選択されていない場合は reviewList の蓄積分を使用する。
+ * selectedItems も reviewList も空の場合は treeItem を単体でレビューする。
+ * Copilot 自身に全リビジョンの svn diff を実行させるプロンプトを送信する。
+ * プロンプト送信後にリストをクリアする。
+ *
+ * @param treeItem      - 右クリックされた TreeItem
+ * @param selectedItems - 複数選択時の全選択アイテム配列（VS Code が自動的に渡す）
+ */
+export async function reviewMultiCommit(treeItem: unknown, selectedItems?: unknown[]): Promise<void> {
+    // 複数選択がある場合は reviewList に統合する（重複除去）
+    const sources: unknown[] = (selectedItems && selectedItems.length > 0) ? selectedItems : [treeItem];
+    for (const source of sources) {
+        const item = source as Record<string, any>;
+        const revision: string | undefined = item?.data?.revision;
+        if (!revision || reviewList.some(e => e.revision === revision)) {
+            continue;
+        }
+        const author: string = item?.data?.author ?? '';
+        const msg: string = (item?.data?.msg ?? '').trim().split('\n')[0];
+        reviewList.push({ revision, author, msg });
+    }
+    if (reviewList.length === 0) {
+        vscode.window.showWarningMessage('No commits to review. Add commits to the review list first.');
+        return;
+    }
+    const wcRoot = findSvnWcRoot();
+    if (!wcRoot) {
+        vscode.window.showErrorMessage('Could not find an SVN working copy in the workspace.');
+        return;
+    }
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.multiCommitHeader([...reviewList], wcRoot);
+    reviewList.length = 0;
+    await vscode.commands.executeCommand('setContext', 'copilot-scm-code-reviewer.hasReviewList', false);
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
 }
