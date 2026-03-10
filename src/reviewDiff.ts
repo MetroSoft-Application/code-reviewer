@@ -98,6 +98,192 @@ function buildPseudoDiff(
 }
 
 /**
+ * テキストを LF 区切りの行配列に正規化する
+ */
+function splitNormalizedLines(content: string): string[] {
+    const lines = content.replace(/\r\n/g, '\n').split('\n');
+    if (lines[lines.length - 1] === '') {
+        lines.pop();
+    }
+    return lines;
+}
+
+/**
+ * 旧内容と新内容から単純な unified diff 形式の文字列を生成する
+ * 最小差分ではなく、ファイル全体を 1 つのハンクとして扱うフォールバック用途
+ */
+function buildReplacementDiff(
+    relativePath: string,
+    beforeContent: string,
+    afterContent: string
+): string {
+    const beforeLines = splitNormalizedLines(beforeContent);
+    const afterLines = splitNormalizedLines(afterContent);
+
+    return [
+        `--- a/${relativePath}`,
+        `+++ b/${relativePath}`,
+        `@@ -1,${beforeLines.length} +1,${afterLines.length} @@`,
+        ...beforeLines.map(line => `-${line}`),
+        ...afterLines.map(line => `+${line}`),
+    ].join('\n');
+}
+
+/**
+ * 任意の URI から UTF-8 テキストを読み込む
+ * 読み込めない場合やバイナリの場合は undefined を返す
+ */
+async function readTextFromUri(uri: vscode.Uri): Promise<string | undefined> {
+    try {
+        const rawContent = await vscode.workspace.fs.readFile(uri);
+        const content = Buffer.from(rawContent).toString('utf8');
+        return isBinary(content) ? undefined : content;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * 未知の値が vscode.Uri 相当かを判定する
+ */
+function isUriLike(value: unknown): value is vscode.Uri {
+    return typeof value === 'object' && value !== null &&
+        'scheme' in value &&
+        'authority' in value &&
+        'path' in value &&
+        'query' in value;
+}
+
+/**
+ * オブジェクト/配列を再帰的にたどって含まれる URI を収集する
+ */
+function collectUris(
+    value: unknown,
+    results: vscode.Uri[],
+    visited: Set<unknown> = new Set(),
+    depth = 0
+): void {
+    if (depth > 4 || value === null || value === undefined) {
+        return;
+    }
+
+    if (isUriLike(value)) {
+        results.push(value);
+        return;
+    }
+
+    if (typeof value !== 'object') {
+        return;
+    }
+
+    if (visited.has(value)) {
+        return;
+    }
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectUris(item, results, visited, depth + 1);
+        }
+        return;
+    }
+
+    for (const nestedValue of Object.values(value)) {
+        collectUris(nestedValue, results, visited, depth + 1);
+    }
+}
+
+/**
+ * URI 文字列から差分の旧側/新側らしさを推定するための簡易スコア
+ */
+function getUriDiffSideScore(uri: vscode.Uri, resourceUri: vscode.Uri): number {
+    const text = uri.toString().toLowerCase();
+
+    if (text.includes('base') || text.includes('original') || text.includes('old')) {
+        return 0;
+    }
+
+    if (
+        text.includes('head') ||
+        text.includes('working') ||
+        text.includes('modified') ||
+        text.includes('new') ||
+        uri.toString() === resourceUri.toString()
+    ) {
+        return 1;
+    }
+
+    return 0.5;
+}
+
+/**
+ * SCM リソースに紐づくコマンド引数から比較対象 URI を推定し、差分文字列を生成する
+ * Remote Changes など、通常の git/svn diff で取得できないケース向けのフォールバック
+ */
+async function getDiffTextFromResourceState(
+    resourceState: vscode.SourceControlResourceState
+): Promise<string | undefined> {
+    const relativePath = vscode.workspace.asRelativePath(resourceState.resourceUri);
+    const commandUris: vscode.Uri[] = [];
+
+    collectUris(resourceState.command?.arguments, commandUris);
+
+    const distinctCommandUris = commandUris.filter((uri, index, list) =>
+        list.findIndex(candidate => candidate.toString() === uri.toString()) === index
+    );
+
+    let beforeUri: vscode.Uri | undefined;
+    let afterUri: vscode.Uri | undefined;
+
+    if (distinctCommandUris.length >= 2) {
+        const [firstUri, secondUri] = distinctCommandUris;
+        const firstScore = getUriDiffSideScore(firstUri, resourceState.resourceUri);
+        const secondScore = getUriDiffSideScore(secondUri, resourceState.resourceUri);
+
+        if (firstScore <= secondScore) {
+            beforeUri = firstUri;
+            afterUri = secondUri;
+        } else {
+            beforeUri = secondUri;
+            afterUri = firstUri;
+        }
+    } else if (distinctCommandUris.length === 1) {
+        const [candidateUri] = distinctCommandUris;
+        if (candidateUri.toString() !== resourceState.resourceUri.toString()) {
+            beforeUri = candidateUri;
+            afterUri = resourceState.resourceUri;
+        }
+    }
+
+    if (!beforeUri && !afterUri) {
+        return undefined;
+    }
+
+    const [beforeContent, afterContent] = await Promise.all([
+        beforeUri ? readTextFromUri(beforeUri) : Promise.resolve(undefined),
+        afterUri ? readTextFromUri(afterUri) : Promise.resolve(undefined),
+    ]);
+
+    if (beforeContent === undefined && afterContent === undefined) {
+        return undefined;
+    }
+
+    if (beforeContent === undefined && afterContent !== undefined) {
+        return buildPseudoDiff(relativePath, afterContent, '+', '/dev/null', `b/${relativePath}`);
+    }
+
+    if (beforeContent !== undefined && afterContent === undefined) {
+        return buildPseudoDiff(relativePath, beforeContent, '-', `a/${relativePath}`, '/dev/null');
+    }
+
+    if (beforeContent === afterContent) {
+        return undefined;
+    }
+
+    return buildReplacementDiff(relativePath, beforeContent ?? '', afterContent ?? '');
+}
+
+/**
  * 单一ファイルのgit差分テキストを取得する
  * ファイルのgitステータスに応じて以下の処理を行う:
  * - 通常の変更: diffWithHEAD / diffIndexWithHEAD
@@ -207,6 +393,20 @@ function getSvnDiffOutput(
 }
 
 /**
+ * `svn diff -r BASE:HEAD` で Remote Changes のdiffテキストを取得する
+ */
+function getSvnRemoteDiffOutput(
+    filePath: string,
+    scmRoot: string
+): Promise<string | undefined> {
+    return new Promise(resolve => {
+        cp.exec(`svn diff -r BASE:HEAD "${filePath}"`, { cwd: scmRoot }, (err, stdout) => {
+            resolve(err ? undefined : (stdout.trim() || undefined));
+        });
+    });
+}
+
+/**
  * SVNリポジトリのファイル差分テキストを取得する
  * - 'M'(変更): svn diff を実行
  * - 'A'/'?'(新規/未追跡): ファイル内容を読み全行'+'のdiffを生成
@@ -240,6 +440,11 @@ async function getDiffTextSvn(
             return diffOutput;
         }
 
+        const remoteDiffOutput = await getSvnRemoteDiffOutput(filePath, scmRoot);
+        if (remoteDiffOutput) {
+            return remoteDiffOutput;
+        }
+
         const content = await getSvnBaseContent(filePath, scmRoot);
         if (!content || isBinary(content)) {
             return undefined;
@@ -247,8 +452,13 @@ async function getDiffTextSvn(
         return buildPseudoDiff(relativePath, content, '-', `a/${relativePath}`, '/dev/null');
     }
 
-    // 通常の変更ファイル
-    return getSvnDiffOutput(filePath, scmRoot);
+    // 通常の変更ファイル / Remote Changes
+    const diffOutput = await getSvnDiffOutput(filePath, scmRoot);
+    if (diffOutput) {
+        return diffOutput;
+    }
+
+    return getSvnRemoteDiffOutput(filePath, scmRoot);
 }
 
 /**
@@ -258,24 +468,32 @@ async function getDiffTextSvn(
  * 3. どちらも認識できない場合はundefined
  */
 async function getFileDiffText(
-    resourceUri: vscode.Uri,
+    resourceState: vscode.SourceControlResourceState,
     gitAPI: ReturnType<GitExtension['getAPI']> | undefined
 ): Promise<string | undefined> {
+    const resourceUri = resourceState.resourceUri;
+
     // Git を試みる
     if (gitAPI) {
         const gitRepo = getRepositoryForUri(gitAPI, resourceUri);
         if (gitRepo) {
-            return getDiffTextGit(gitRepo, resourceUri);
+            const diffText = await getDiffTextGit(gitRepo, resourceUri);
+            if (diffText) {
+                return diffText;
+            }
         }
     }
 
     // SVN を試みる
     const scmInfo = findScmRoot(resourceUri.fsPath);
     if (scmInfo && scmInfo.type === 'svn') {
-        return getDiffTextSvn(resourceUri, scmInfo.root);
+        const diffText = await getDiffTextSvn(resourceUri, scmInfo.root);
+        if (diffText) {
+            return diffText;
+        }
     }
 
-    return undefined;
+    return getDiffTextFromResourceState(resourceState);
 }
 
 /**
@@ -516,7 +734,7 @@ export async function reviewDiff(
 
         let diffText: string | undefined;
         try {
-            diffText = await getFileDiffText(target.resourceUri, gitAPI);
+            diffText = await getFileDiffText(target, gitAPI);
         } catch (error) {
             vscode.window.showInformationMessage(
                 `Could not retrieve diff (file may be binary): ${fileName}`
