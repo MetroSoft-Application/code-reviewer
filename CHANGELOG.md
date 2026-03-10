@@ -1,3 +1,7 @@
+## [1.0.7]
+
+- Improved review support for files shown in SVN Remote Changes
+
 ## [1.0.6]
 
 - Added "Review Section with Copilot" to Git SCM section headers (Changes / Staged Changes)
