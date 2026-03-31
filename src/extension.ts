@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups } from './reviewDiff';
+import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewPrFiles } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -12,7 +12,7 @@ import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiC
  *
  * @param context - 拡張機能のコンテキスト
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     /*
      * SCMコンテキストメニューからのコードレビューコマンドを登録する
      * 引数はSCMビューから渡されるSourceControlResourceState
@@ -65,13 +65,23 @@ export function activate(context: vscode.ExtensionContext): void {
         reviewGitGroups
     );
 
+    /*
+     * PR の変更ファイルから選択してプレビューレビューするコマンドを登録する
+     * SCM タイトルバーのボタンまたはコマンドパレットから呼び出す
+     */
+    const reviewPrFilesCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewPrFiles',
+        reviewPrFiles
+    );
+
     context.subscriptions.push(
         reviewDiffCommand,
         reviewRevisionCommand,
         reviewCommitCommand,
         addToReviewListCommand,
         reviewMultiCommitCommand,
-        reviewGitGroupsCommand
+        reviewGitGroupsCommand,
+        reviewPrFilesCommand
     );
 }
 

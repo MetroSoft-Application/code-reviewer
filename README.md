@@ -7,6 +7,7 @@ Supports both Git and SVN repositories.
 
 - **Context Menu Integration**: Right-click any file in the SCM view and select "Review with Copilot" to request a code review instantly
 - **Multi-Selection Support**: Select multiple files and request a batch review in one action
+- **GitHub Pull Request Panel Integration**: Adds a separate **Review Changed Files** action to the **Changed Files** header in the GitHub Pull Request panel without replacing the built-in Code Review button
 - **Section Review (Git)**: Right-click the **Changes** or **Staged Changes** section header and select "Review Section with Copilot" to send Git diff commands for batch review
 - **Git and SVN Support**: Automatically detects Git and SVN repositories and retrieves the appropriate diff
 - **New and Deleted File Support**: Correctly handles untracked (new) files and deleted files
@@ -36,6 +37,18 @@ Supports both Git and SVN repositories.
 2. Right-click one of the selected files
 3. Select **"Review with Copilot"**
 4. All selected diffs are sent to Copilot Chat in a single request
+
+### Review Changed Files from the GitHub Pull Request Panel
+
+1. Install the GitHub Pull Requests and Issues extension
+2. Open the GitHub Pull Request panel in VS Code
+3. In the **Changed Files** section header, click **"Review Changed Files"**
+4. Select one or more files from the Quick Pick
+5. GitHub Copilot Chat opens with the selected diffs as a review request
+
+This action is added as a separate header command, so the built-in **Code Review** button provided by the GitHub Pull Request extension remains unchanged.
+
+![demo](./resources/demo-pr.gif)
 
 ### Review Git Sections in Batch (Changes / Staged Changes)
 

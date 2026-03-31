@@ -6,7 +6,8 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { GitExtension, Repository } from './api/git';
+import type { GitExtension, Repository, Change } from './api/git';
+import type { GitHubPRAPI, ReviewerComments, ReviewerCommentsContext } from './api/githubPr';
 import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry } from './promptTemplates';
 
 /*
@@ -1145,5 +1146,213 @@ export async function reviewMultiCommit(treeItem: unknown, selectedItems?: unkno
     const prompt = template.multiCommitHeader([...reviewList], wcRoot);
     reviewList.length = 0;
     await vscode.commands.executeCommand('setContext', 'copilot-scm-code-reviewer.hasReviewList', false);
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+}
+
+/**
+ * GitHub PR 拡張機能の ReviewerCommentsProvider 実装
+ * PR の変更ファイル一覧を QuickPick で絞り込み、選択ファイルの差分を Copilot Chat に送信する
+ *
+ * @param context - GitHub PR 拡張機能から渡される PR コンテキスト（パッチ情報を含む）
+ * @param token   - キャンセルトークン
+ * @returns レビュー結果（選択ファイルの URI と成否）
+ */
+export async function openPrFileReviewViaProvider(
+    context: ReviewerCommentsContext,
+    token: vscode.CancellationToken
+): Promise<ReviewerComments | undefined> {
+    const { patches, repositoryRoot } = context;
+
+    if (patches.length === 0 || token.isCancellationRequested) {
+        return { files: [], succeeded: false };
+    }
+
+    const items = patches.map(p => ({
+        label: p.fileUri.split('/').pop() ?? p.fileUri,
+        description: p.fileUri,
+        patch: p,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        canPickMany: true,
+        placeHolder: 'レビューするファイルを選択 (複数選択可)',
+        title: 'PR 変更ファイルのプレビューレビュー',
+    });
+
+    if (!selected || selected.length === 0 || token.isCancellationRequested) {
+        return { files: [], succeeded: false };
+    }
+
+    const diffs: Array<{ fileName: string; diffText: string; }> = [];
+    let totalSize = 0;
+    let skippedCount = 0;
+
+    for (const item of selected) {
+        const patchText = item.patch.patch;
+        const fileUri = item.patch.fileUri;
+
+        if (!patchText || isBinary(patchText)) {
+            skippedCount++;
+            continue;
+        }
+
+        if (totalSize + patchText.length > DIFF_SIZE_LIMIT) {
+            skippedCount += selected.length - diffs.length;
+            break;
+        }
+
+        totalSize += patchText.length;
+        diffs.push({ fileName: fileUri, diffText: patchText });
+    }
+
+    if (diffs.length === 0) {
+        return { files: [], succeeded: false };
+    }
+
+    const prompt = buildPrompt(diffs, skippedCount);
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+
+    const selectedUris = selected.map(item => {
+        const rawUri = item.patch.fileUri;
+        try {
+            const parsed = vscode.Uri.parse(rawUri, true);
+            // scheme が file 以外（https 等）はリポジトリルートからの相対パスとして扱う
+            if (parsed.scheme !== 'file') {
+                return vscode.Uri.joinPath(vscode.Uri.file(repositoryRoot), rawUri);
+            }
+            return parsed;
+        } catch {
+            return vscode.Uri.joinPath(vscode.Uri.file(repositoryRoot), rawUri);
+        }
+    });
+
+    return { files: selectedUris, succeeded: true };
+}
+
+/**
+ * SCM タイトルバーから呼び出されるスタンドアロンコマンド
+ * 現在のブランチとベースブランチとの差分ファイルを QuickPick で選択してレビューする
+ * ベースブランチは GitHub PR 拡張機能 → origin/HEAD → origin/main → origin/master の優先順で検出する
+ */
+export async function reviewPrFiles(): Promise<void> {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
+        return;
+    }
+
+    // リポジトリを取得する（ワークスペース起点、取得できない場合は先頭リポジトリ）
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    let repo = (workspaceFolders && workspaceFolders.length > 0)
+        ? getRepositoryForUri(gitAPI, workspaceFolders[0].uri)
+        : undefined;
+
+    if (!repo && gitAPI.repositories.length > 0) {
+        repo = gitAPI.repositories[0];
+    }
+
+    if (!repo) {
+        vscode.window.showErrorMessage('Git リポジトリが見つかりません。');
+        return;
+    }
+
+    // マージベースを検出する（GitHub PR 拡張機能のデフォルトブランチを優先）
+    let mergeBase: string | undefined;
+
+    try {
+        const ghPrExt = vscode.extensions.getExtension<GitHubPRAPI>('github.vscode-pull-request-github');
+        if (ghPrExt?.isActive) {
+            const repoDesc = await ghPrExt.exports.getRepositoryDescription(repo.rootUri);
+            if (repoDesc?.defaultBranch) {
+                mergeBase = await repo.getMergeBase('HEAD', `origin/${repoDesc.defaultBranch}`)
+                    .catch(() => undefined);
+            }
+        }
+    } catch {
+        // GitHub PR 拡張機能が利用できない場合は無視する
+    }
+
+    // フォールバック：一般的なブランチ名を順に試みる
+    if (!mergeBase) {
+        for (const base of ['origin/HEAD', 'origin/main', 'origin/master', 'origin/develop']) {
+            mergeBase = await repo.getMergeBase('HEAD', base).catch(() => undefined);
+            if (mergeBase) { break; }
+        }
+    }
+
+    if (!mergeBase) {
+        vscode.window.showErrorMessage(
+            'マージベースを検出できませんでした。' +
+            'フィーチャーブランチ上で実行し、リモートブランチ (origin/main 等) が存在するか確認してください。'
+        );
+        return;
+    }
+
+    let changes: Change[];
+    try {
+        changes = await repo.diffBetween(mergeBase, 'HEAD');
+    } catch {
+        vscode.window.showErrorMessage('変更ファイルの取得に失敗しました。');
+        return;
+    }
+
+    if (!Array.isArray(changes) || changes.length === 0) {
+        vscode.window.showInformationMessage('ベースブランチとの差分はありません。');
+        return;
+    }
+
+    type PrFileItem = vscode.QuickPickItem & { filePath: string; };
+
+    const items: PrFileItem[] = changes.map((change: { uri: vscode.Uri; }) => ({
+        label: path.basename(change.uri.fsPath),
+        description: vscode.workspace.asRelativePath(change.uri),
+        filePath: change.uri.fsPath,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        canPickMany: true,
+        placeHolder: 'レビューするファイルを選択 (複数選択可)',
+        title: 'PR 変更ファイルのプレビューレビュー',
+    });
+
+    if (!selected || selected.length === 0) {
+        return;
+    }
+
+    const diffs: Array<{ fileName: string; diffText: string; }> = [];
+    let totalSize = 0;
+    let skippedCount = 0;
+
+    for (const item of selected) {
+        const fileName = item.description ?? item.label;
+        let diffText: string | undefined;
+
+        try {
+            diffText = await repo.diffBetween(mergeBase, 'HEAD', item.filePath);
+        } catch {
+            skippedCount++;
+            continue;
+        }
+
+        if (!diffText || isBinary(diffText)) {
+            skippedCount++;
+            continue;
+        }
+
+        if (totalSize + diffText.length > DIFF_SIZE_LIMIT) {
+            skippedCount += selected.length - diffs.length;
+            break;
+        }
+
+        totalSize += diffText.length;
+        diffs.push({ fileName, diffText });
+    }
+
+    if (diffs.length === 0) {
+        vscode.window.showInformationMessage('レビュー可能な差分が見つかりませんでした。');
+        return;
+    }
+
+    const prompt = buildPrompt(diffs, skippedCount);
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
 }

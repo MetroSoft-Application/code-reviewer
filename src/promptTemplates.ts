@@ -27,7 +27,7 @@ export interface PromptTemplate {
 export const PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     ja: {
         header: '以下の差分をコードレビューしてください。\n各ファイルについて、問題点・改善案・良い点をそれぞれ具体的に指摘してください。',
-        fileLabel: 'ファイル',
+        fileLabel: 'ファイル ',
         skipNotice: (n) => `> 注意: 差分サイズが上限を超えたため、${n}件のファイルをスキップしました。`,
         commitHeader: (revision, author, msg, wcRoot) =>
             `リビジョン r${revision} のコミット差分をコードレビューしてください。\n` +

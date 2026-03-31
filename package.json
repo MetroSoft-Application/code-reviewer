@@ -2,7 +2,7 @@
   "name": "copilot-scm-code-reviewer",
   "displayName": "Code Reviewer for Copilot",
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "publisher": "MetroSoft-Application",
   "icon": "resources/icon.png",
   "repository": {
@@ -24,12 +24,15 @@
     "diff"
   ],
   "activationEvents": [
+    "workspaceContains:.git",
     "onCommand:copilot-scm-code-reviewer.reviewDiff",
     "onCommand:copilot-scm-code-reviewer.reviewRevision",
     "onCommand:copilot-scm-code-reviewer.reviewCommit",
     "onCommand:copilot-scm-code-reviewer.addToReviewList",
     "onCommand:copilot-scm-code-reviewer.reviewMultiCommit",
-    "onCommand:copilot-scm-code-reviewer.reviewGitGroups"
+    "onCommand:copilot-scm-code-reviewer.reviewGitGroups",
+    "onCommand:copilot-scm-code-reviewer.reviewPrFiles",
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -57,6 +60,11 @@
       {
         "command": "copilot-scm-code-reviewer.reviewGitGroups",
         "title": "Review Section with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewPrFiles",
+        "title": "Review Changed Files",
+        "icon": "$(comment-discussion)"
       }
     ],
     "menus": {
@@ -69,6 +77,25 @@
         {
           "command": "copilot-scm-code-reviewer.reviewDiff",
           "when": "scmProvider == svn",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "copilot-scm-code-reviewer.reviewPrFiles",
+          "when": "view == github:compareChangesFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewPrFiles",
+          "when": "view == prStatus:github",
+          "group": "navigation"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "copilot-scm-code-reviewer.reviewPrFiles",
+          "when": "scmProvider == git",
           "group": "navigation"
         }
       ],
