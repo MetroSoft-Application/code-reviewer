@@ -328,6 +328,80 @@ async function getDiffTextGit(
 }
 
 /**
+ * git コマンドを実行して標準出力を返す
+ */
+function runGitCommand(repoRoot: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+        cp.execFile('git', ['-C', repoRoot, ...args], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+            if (err) {
+                reject(new Error((stderr || err.message).trim()));
+                return;
+            }
+            resolve(stdout);
+        });
+    });
+}
+
+/**
+ * 2つの ref 間で変更されたファイルの相対パス一覧を取得する
+ */
+async function getChangedFilesBetweenRefs(
+    repo: Repository,
+    ref1: string,
+    ref2: string
+): Promise<string[]> {
+    const repoRoot = repo.rootUri.fsPath;
+    const range = `${ref1}...${ref2}`;
+
+    try {
+        const stdout = await runGitCommand(repoRoot, [
+            'diff',
+            '--name-only',
+            '--diff-filter=ACDMRTUXB',
+            '-z',
+            range,
+        ]);
+
+        return stdout
+            .split('\0')
+            .map(entry => entry.trim())
+            .filter((entry, index, list) => entry.length > 0 && list.indexOf(entry) === index);
+    } catch {
+        const changes = await repo.diffBetween(ref1, ref2);
+        return changes
+            .map(change => path.relative(repoRoot, change.uri.fsPath).replace(/\\/g, '/'))
+            .filter((entry, index, list) => entry.length > 0 && list.indexOf(entry) === index);
+    }
+}
+
+/**
+ * 2つの ref 間における単一ファイルの diff を取得する
+ */
+async function getGitDiffBetweenRefs(
+    repo: Repository,
+    ref1: string,
+    ref2: string,
+    relativePath: string
+): Promise<string | undefined> {
+    const repoRoot = repo.rootUri.fsPath;
+    const range = `${ref1}...${ref2}`;
+
+    try {
+        const stdout = await runGitCommand(repoRoot, [
+            'diff',
+            '--no-ext-diff',
+            range,
+            '--',
+            relativePath,
+        ]);
+        return stdout.trim().length > 0 ? stdout : undefined;
+    } catch {
+        const absolutePath = path.join(repoRoot, relativePath);
+        return repo.diffBetween(ref1, ref2, absolutePath).catch(() => undefined);
+    }
+}
+
+/**
  * ディレクトリを遅って .git または .svn フォルダを検索する
  * @returns 検出したルートディレクトリとSCM種別。見つからない場合はundefined
  */
@@ -1241,11 +1315,20 @@ export async function reviewPrFiles(): Promise<void> {
         return;
     }
 
-    // リポジトリを取得する（ワークスペース起点、取得できない場合は先頭リポジトリ）
+    // リポジトリを取得する（選択中リポジトリを優先し、次にアクティブエディタ/ワークスペースを試す）
     const workspaceFolders = vscode.workspace.workspaceFolders;
-    let repo = (workspaceFolders && workspaceFolders.length > 0)
-        ? getRepositoryForUri(gitAPI, workspaceFolders[0].uri)
-        : undefined;
+    let repo = gitAPI.repositories.find(repository => repository.ui.selected);
+
+    if (!repo) {
+        const activeEditorUri = vscode.window.activeTextEditor?.document.uri;
+        if (activeEditorUri) {
+            repo = getRepositoryForUri(gitAPI, activeEditorUri);
+        }
+    }
+
+    if (!repo && workspaceFolders && workspaceFolders.length > 0) {
+        repo = getRepositoryForUri(gitAPI, workspaceFolders[0].uri);
+    }
 
     if (!repo && gitAPI.repositories.length > 0) {
         repo = gitAPI.repositories[0];
@@ -1288,25 +1371,25 @@ export async function reviewPrFiles(): Promise<void> {
         return;
     }
 
-    let changes: Change[];
+    let changedFiles: string[];
     try {
-        changes = await repo.diffBetween(mergeBase, 'HEAD');
+        changedFiles = await getChangedFilesBetweenRefs(repo, mergeBase, 'HEAD');
     } catch {
         vscode.window.showErrorMessage('変更ファイルの取得に失敗しました。');
         return;
     }
 
-    if (!Array.isArray(changes) || changes.length === 0) {
+    if (changedFiles.length === 0) {
         vscode.window.showInformationMessage('ベースブランチとの差分はありません。');
         return;
     }
 
-    type PrFileItem = vscode.QuickPickItem & { filePath: string; };
+    type PrFileItem = vscode.QuickPickItem & { relativePath: string; };
 
-    const items: PrFileItem[] = changes.map((change: { uri: vscode.Uri; }) => ({
-        label: path.basename(change.uri.fsPath),
-        description: vscode.workspace.asRelativePath(change.uri),
-        filePath: change.uri.fsPath,
+    const items: PrFileItem[] = changedFiles.map(relativePath => ({
+        label: path.basename(relativePath),
+        description: relativePath,
+        relativePath,
     }));
 
     const selected = await vscode.window.showQuickPick(items, {
@@ -1328,7 +1411,7 @@ export async function reviewPrFiles(): Promise<void> {
         let diffText: string | undefined;
 
         try {
-            diffText = await repo.diffBetween(mergeBase, 'HEAD', item.filePath);
+            diffText = await getGitDiffBetweenRefs(repo, mergeBase, 'HEAD', item.relativePath);
         } catch {
             skippedCount++;
             continue;
