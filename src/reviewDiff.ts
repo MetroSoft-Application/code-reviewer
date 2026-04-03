@@ -43,6 +43,69 @@ function getGitAPI(): ReturnType<GitExtension['getAPI']> | undefined {
     return gitExtension.exports.getAPI(1);
 }
 
+type InternalPrFileChange = {
+    fileName: string;
+    previousFileName?: string;
+    patch?: string;
+};
+
+type ActivePullRequestContext = {
+    baseRef?: string;
+    baseSha?: string;
+    headSha?: string;
+    mergeBase?: string;
+    fileChanges: InternalPrFileChange[];
+};
+
+/**
+ * GitHub Pull Request 拡張の内部モデルから、現在レビュー中の PR 情報を取得する。
+ * 公開 API に changed files 一覧がないため、利用可能なときのみ内部 model を参照する。
+ */
+async function getActivePullRequestContext(repo: Repository): Promise<ActivePullRequestContext | undefined> {
+    const ghPrExt = vscode.extensions.getExtension<GitHubPRAPI>('github.vscode-pull-request-github');
+    if (!ghPrExt?.isActive) {
+        return undefined;
+    }
+
+    const api = ghPrExt.exports as GitHubPRAPI & {
+        repositoriesManager?: {
+            getManagerForFile?: (uri: vscode.Uri) => {
+                activePullRequest?: {
+                    base?: { ref?: string; sha?: string; };
+                    head?: { sha?: string; };
+                    mergeBase?: string;
+                    fileChanges?: Map<string, InternalPrFileChange>;
+                    getFileChangesInfo?: () => Promise<InternalPrFileChange[]>;
+                };
+            };
+        };
+    };
+
+    const manager = api.repositoriesManager?.getManagerForFile?.(repo.rootUri);
+    const activePullRequest = manager?.activePullRequest;
+    if (!activePullRequest) {
+        return undefined;
+    }
+
+    let fileChangesMap = activePullRequest.fileChanges;
+    if ((!fileChangesMap || fileChangesMap.size === 0) && activePullRequest.getFileChangesInfo) {
+        try {
+            await activePullRequest.getFileChangesInfo();
+            fileChangesMap = activePullRequest.fileChanges;
+        } catch {
+            fileChangesMap = activePullRequest.fileChanges;
+        }
+    }
+
+    return {
+        baseRef: activePullRequest.base?.ref,
+        baseSha: activePullRequest.base?.sha,
+        headSha: activePullRequest.head?.sha,
+        mergeBase: activePullRequest.mergeBase,
+        fileChanges: fileChangesMap ? [...fileChangesMap.values()] : [],
+    };
+}
+
 /**
  * リソースURIに対応するGitリポジトリを取得する
  * 見つからない場合はエラーなしのundefinedを返す
@@ -330,9 +393,9 @@ async function getDiffTextGit(
 /**
  * git コマンドを実行して標準出力を返す
  */
-function runGitCommand(repoRoot: string, args: string[]): Promise<string> {
+function runGitCommand(gitPath: string, repoRoot: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-        cp.execFile('git', ['-C', repoRoot, ...args], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+        cp.execFile(gitPath, ['-C', repoRoot, ...args], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
             if (err) {
                 reject(new Error((stderr || err.message).trim()));
                 return;
@@ -346,6 +409,7 @@ function runGitCommand(repoRoot: string, args: string[]): Promise<string> {
  * 2つの ref 間で変更されたファイルの相対パス一覧を取得する
  */
 async function getChangedFilesBetweenRefs(
+    gitPath: string,
     repo: Repository,
     ref1: string,
     ref2: string
@@ -354,7 +418,7 @@ async function getChangedFilesBetweenRefs(
     const range = `${ref1}...${ref2}`;
 
     try {
-        const stdout = await runGitCommand(repoRoot, [
+        const stdout = await runGitCommand(gitPath, repoRoot, [
             'diff',
             '--name-only',
             '--diff-filter=ACDMRTUXB',
@@ -378,6 +442,7 @@ async function getChangedFilesBetweenRefs(
  * 2つの ref 間における単一ファイルの diff を取得する
  */
 async function getGitDiffBetweenRefs(
+    gitPath: string,
     repo: Repository,
     ref1: string,
     ref2: string,
@@ -387,7 +452,7 @@ async function getGitDiffBetweenRefs(
     const range = `${ref1}...${ref2}`;
 
     try {
-        const stdout = await runGitCommand(repoRoot, [
+        const stdout = await runGitCommand(gitPath, repoRoot, [
             'diff',
             '--no-ext-diff',
             range,
@@ -1315,6 +1380,8 @@ export async function reviewPrFiles(): Promise<void> {
         return;
     }
 
+    const gitPath = gitAPI.git.path || 'git';
+
     // リポジトリを取得する（選択中リポジトリを優先し、次にアクティブエディタ/ワークスペースを試す）
     const workspaceFolders = vscode.workspace.workspaceFolders;
     let repo = gitAPI.repositories.find(repository => repository.ui.selected);
@@ -1339,47 +1406,67 @@ export async function reviewPrFiles(): Promise<void> {
         return;
     }
 
-    // マージベースを検出する（GitHub PR 拡張機能のデフォルトブランチを優先）
-    let mergeBase: string | undefined;
+    const activePullRequest = await getActivePullRequestContext(repo);
+    const fileChangesByPath = new Map(
+        (activePullRequest?.fileChanges ?? [])
+            .filter(change => !!change.fileName)
+            .map(change => [change.fileName, change])
+    );
 
-    try {
-        const ghPrExt = vscode.extensions.getExtension<GitHubPRAPI>('github.vscode-pull-request-github');
-        if (ghPrExt?.isActive) {
-            const repoDesc = await ghPrExt.exports.getRepositoryDescription(repo.rootUri);
-            if (repoDesc?.defaultBranch) {
-                mergeBase = await repo.getMergeBase('HEAD', `origin/${repoDesc.defaultBranch}`)
-                    .catch(() => undefined);
+    let mergeBase: string | undefined;
+    let baseRefForDiff: string | undefined;
+    let headRefForDiff = 'HEAD';
+    let changedFiles: string[] | undefined;
+
+    if (fileChangesByPath.size > 0) {
+        changedFiles = [...fileChangesByPath.keys()];
+        baseRefForDiff = activePullRequest?.mergeBase ?? activePullRequest?.baseSha;
+        headRefForDiff = activePullRequest?.headSha ?? 'HEAD';
+    }
+
+    // active PR から changed files を取れない場合のみ、ローカル Git から推定する
+    if (!changedFiles) {
+        try {
+            const ghPrExt = vscode.extensions.getExtension<GitHubPRAPI>('github.vscode-pull-request-github');
+            if (ghPrExt?.isActive) {
+                const repoDesc = await ghPrExt.exports.getRepositoryDescription(repo.rootUri);
+                const candidateBaseRef = activePullRequest?.baseRef ?? repoDesc?.defaultBranch;
+                if (candidateBaseRef) {
+                    mergeBase = await repo.getMergeBase('HEAD', `origin/${candidateBaseRef}`)
+                        .catch(() => undefined);
+                }
+            }
+        } catch {
+            // GitHub PR 拡張機能が利用できない場合は無視する
+        }
+
+        // フォールバック：一般的なブランチ名を順に試みる
+        if (!mergeBase) {
+            for (const base of ['origin/HEAD', 'origin/main', 'origin/master', 'origin/develop']) {
+                mergeBase = await repo.getMergeBase('HEAD', base).catch(() => undefined);
+                if (mergeBase) { break; }
             }
         }
-    } catch {
-        // GitHub PR 拡張機能が利用できない場合は無視する
-    }
 
-    // フォールバック：一般的なブランチ名を順に試みる
-    if (!mergeBase) {
-        for (const base of ['origin/HEAD', 'origin/main', 'origin/master', 'origin/develop']) {
-            mergeBase = await repo.getMergeBase('HEAD', base).catch(() => undefined);
-            if (mergeBase) { break; }
+        if (!mergeBase) {
+            vscode.window.showErrorMessage(
+                'マージベースを検出できませんでした。' +
+                'フィーチャーブランチ上で実行し、リモートブランチ (origin/main 等) が存在するか確認してください。'
+            );
+            return;
+        }
+
+        baseRefForDiff = mergeBase;
+
+        try {
+            changedFiles = await getChangedFilesBetweenRefs(gitPath, repo, mergeBase, 'HEAD');
+        } catch {
+            vscode.window.showErrorMessage('変更ファイルの取得に失敗しました。');
+            return;
         }
     }
 
-    if (!mergeBase) {
-        vscode.window.showErrorMessage(
-            'マージベースを検出できませんでした。' +
-            'フィーチャーブランチ上で実行し、リモートブランチ (origin/main 等) が存在するか確認してください。'
-        );
-        return;
-    }
-
-    let changedFiles: string[];
-    try {
-        changedFiles = await getChangedFilesBetweenRefs(repo, mergeBase, 'HEAD');
-    } catch {
-        vscode.window.showErrorMessage('変更ファイルの取得に失敗しました。');
-        return;
-    }
-
-    if (changedFiles.length === 0) {
+    if (!changedFiles || changedFiles.length === 0) {
         vscode.window.showInformationMessage('ベースブランチとの差分はありません。');
         return;
     }
@@ -1409,9 +1496,14 @@ export async function reviewPrFiles(): Promise<void> {
     for (const item of selected) {
         const fileName = item.description ?? item.label;
         let diffText: string | undefined;
+        const fileChange = fileChangesByPath.get(item.relativePath);
 
         try {
-            diffText = await getGitDiffBetweenRefs(repo, mergeBase, 'HEAD', item.relativePath);
+            if (fileChange?.patch) {
+                diffText = fileChange.patch;
+            } else if (baseRefForDiff) {
+                diffText = await getGitDiffBetweenRefs(gitPath, repo, baseRefForDiff, headRefForDiff, item.relativePath);
+            }
         } catch {
             skippedCount++;
             continue;

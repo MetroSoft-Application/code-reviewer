@@ -1,4 +1,4 @@
-## [1.0.9]
+## [1.0.10]
 
 - Added "Review Changed Files" to the GitHub Pull Request panel's Changed Files header
 - Added the PR panel action as a separate command without replacing the built-in "Code Review" button
