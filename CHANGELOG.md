@@ -1,3 +1,7 @@
+## [1.1.0]
+
+- Added a feature that allows reviewing commits individually from the graph section of the Git history
+
 ## [1.0.10]
 
 - Added "Review Changed Files" to the GitHub Pull Request panel's Changed Files header

@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { GitExtension, Repository, Change } from './api/git';
 import type { GitHubPRAPI, ReviewerComments, ReviewerCommentsContext } from './api/githubPr';
-import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry } from './promptTemplates';
+import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry, GitReviewListEntry } from './promptTemplates';
 
 /*
  * Status は git.d.ts で const enum として定義されているため、
@@ -41,6 +41,37 @@ function getGitAPI(): ReturnType<GitExtension['getAPI']> | undefined {
         return undefined;
     }
     return gitExtension.exports.getAPI(1);
+}
+
+/**
+ * 指定したコミットハッシュを持つリポジトリを返す
+ * 単一リポジトリの場合はそのままそのリポジトリを返す
+ * 複数リポジトリの場合は各リポジトリで getCommit を試みて一致したものを返す
+ * いずれにも見つからない場合は先頭リポジトリをフォールバックとして返す
+ *
+ * @param gitAPI - vscode.git API インスタンス
+ * @param hash   - 検索するコミットハッシュ
+ * @returns 対象リポジトリ。リポジトリが存在しない場合は undefined
+ */
+async function findRepoForCommit(
+    gitAPI: ReturnType<GitExtension['getAPI']>,
+    hash: string
+): Promise<Repository | undefined> {
+    if (gitAPI.repositories.length === 0) {
+        return undefined;
+    }
+    if (gitAPI.repositories.length === 1) {
+        return gitAPI.repositories[0];
+    }
+    for (const repo of gitAPI.repositories) {
+        try {
+            await repo.getCommit(hash);
+            return repo;
+        } catch {
+            // このリポジトリにはないので次へ
+        }
+    }
+    return gitAPI.repositories[0];
 }
 
 type InternalPrFileChange = {
@@ -1366,6 +1397,205 @@ export async function openPrFileReviewViaProvider(
     });
 
     return { files: selectedUris, succeeded: true };
+}
+
+// ---------------------------------------------------------------------------
+// Git Timeline (Timeline ビュー) のコミットレビュー機能
+// ---------------------------------------------------------------------------
+
+/** Git コミットレビューリスト（モジュールスコープで管理） */
+const gitReviewList: GitReviewListEntry[] = [];
+
+/**
+ * VS Code の Timeline ビューで Git コミットを右クリックしたときのコマンドハンドラー
+ * Copilot 自身に `git show <hash>` を実行させるプロンプトを構築してチャットに渡す
+ *
+ * scm/historyItem/context コマンドへの引数は SourceControlHistoryItem 1つ。
+ * Git プロバイダーが生成するアイテムの `id` プロパティがコミットハッシュ。
+ *
+ * @param item - VS Code の SourceControlHistoryItem（id プロパティに commit hash を含む）
+ */
+export async function reviewGitCommit(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
+        return;
+    }
+
+    const hi = historyItem as Record<string, any>;
+    const hash: string | undefined = hi?.id;
+    if (!hash || hash.length < 7) {
+        vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
+        return;
+    }
+
+    const repo = await findRepoForCommit(gitAPI, hash);
+    if (!repo) {
+        vscode.window.showErrorMessage('Git リポジトリが見つかりません。');
+        return;
+    }
+
+    const author = String(hi.author ?? '');
+    const msg = String(hi.subject ?? hi.message ?? '').trim().split('\n')[0];
+    const repoRoot = repo.rootUri.fsPath;
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.gitCommitHeader(hash, author, msg, repoRoot);
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+}
+
+/**
+ * ソース管理履歴ビューで Git コミットをレビューリストに追加するコマンドハンドラー
+ * 重複チェックを行い、追加後に hasGitReviewList コンテキストキーを true に設定する
+ *
+ * @param item - VS Code の SourceControlHistoryItem
+ */
+export async function addGitCommitToReviewList(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
+        return;
+    }
+
+    const hi = historyItem as Record<string, any>;
+    const hash: string | undefined = hi?.id;
+    if (!hash || hash.length < 7) {
+        vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
+        return;
+    }
+
+    if (gitReviewList.some(e => e.hash === hash)) {
+        vscode.window.showInformationMessage(`Commit ${hash.slice(0, 7)} is already in the review list.`);
+        return;
+    }
+
+    const repo = await findRepoForCommit(gitAPI, hash);
+    if (!repo) {
+        vscode.window.showErrorMessage('Git リポジトリが見つかりません。');
+        return;
+    }
+
+    const author = String(hi.author ?? '');
+    const msg = String(hi.subject ?? hi.message ?? '').trim().split('\n')[0];
+    const repoRoot = repo.rootUri.fsPath;
+    gitReviewList.push({ hash, author, msg, repoRoot });
+    await vscode.commands.executeCommand('setContext', 'copilot-scm-code-reviewer.hasGitReviewList', true);
+    vscode.window.showInformationMessage(`Added commit ${hash.slice(0, 7)} to review list. (total: ${gitReviewList.length})`);
+}
+
+/**
+ * Git コミットレビューリストに蓄積されたコミットをまとめてレビューするコマンドハンドラー
+ * Copilot に全コミットの `git show` を実行させるプロンプトを構築してチャットに渡す
+ * プロンプト送信後にリストをクリアする
+ *
+ * @param _item - VS Code の SourceControlHistoryItem（未使用）
+ */
+export async function reviewMultiGitCommit(_item: unknown): Promise<void> {
+    if (gitReviewList.length === 0) {
+        vscode.window.showWarningMessage('No commits to review. Add commits to the review list first.');
+        return;
+    }
+
+    const repoRoot = gitReviewList[0].repoRoot;
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.multiGitCommitHeader([...gitReviewList], repoRoot);
+
+    gitReviewList.length = 0;
+    await vscode.commands.executeCommand('setContext', 'copilot-scm-code-reviewer.hasGitReviewList', false);
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+}
+
+/**
+ * ソース管理履歴ビューで Git コミット内のファイルを選択して個別にレビューするコマンドハンドラー
+ * QuickPick でファイルを選択し、選択ファイルの diff を Copilot Chat に送信する
+ *
+ * @param _scmProvider - VS Code が渡す SCM プロバイダー（未使用）
+ * @param historyItem - VS Code の SourceControlHistoryItem
+ */
+export async function reviewGitCommitFile(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
+        return;
+    }
+
+    const hi = historyItem as Record<string, any>;
+    const hash: string | undefined = hi?.id;
+    if (!hash || hash.length < 7) {
+        vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
+        return;
+    }
+
+    const repo = await findRepoForCommit(gitAPI, hash);
+    if (!repo) {
+        vscode.window.showErrorMessage('Git リポジトリが見つかりません。');
+        return;
+    }
+
+    const repoRoot = repo.rootUri.fsPath;
+
+    // コミット内の変更ファイル一覧を取得する
+    const filesOutput = await new Promise<string>((resolve) => {
+        cp.exec(
+            `git -C "${repoRoot}" show --name-status --format="" ${hash}`,
+            { encoding: 'utf8' },
+            (_err, stdout) => resolve(stdout ?? '')
+        );
+    });
+
+    type FileEntry = { filePath: string; label: string; };
+    const fileEntries: FileEntry[] = [];
+
+    const statusIcons: Record<string, string> = { M: '~', A: '+', D: '-', R: '→', C: '©' };
+
+    for (const line of filesOutput.trim().split('\n')) {
+        if (!line.trim()) {
+            continue;
+        }
+        const parts = line.split('\t');
+        if (parts.length < 2) {
+            continue;
+        }
+        const statusChar = parts[0].charAt(0).toUpperCase();
+        const icon = statusIcons[statusChar] ?? '?';
+
+        if ((statusChar === 'R' || statusChar === 'C') && parts.length >= 3) {
+            // リネーム / コピー: 新パスを使用する
+            fileEntries.push({ filePath: parts[2], label: `${icon} ${parts[2]}` });
+        } else {
+            fileEntries.push({ filePath: parts[1], label: `${icon} ${parts[1]}` });
+        }
+    }
+
+    if (fileEntries.length === 0) {
+        vscode.window.showWarningMessage('このコミットに変更ファイルが見つかりませんでした。');
+        return;
+    }
+
+    const picks = await vscode.window.showQuickPick(
+        fileEntries.map(e => ({ label: e.label, filePath: e.filePath })),
+        {
+            title: `コミット ${hash.slice(0, 7)} — レビューするファイルを選択`,
+            placeHolder: 'レビューするファイルを選択してください（複数選択可）',
+            canPickMany: true,
+        }
+    );
+
+    if (!picks || picks.length === 0) {
+        return;
+    }
+
+    const selectedFiles = picks.map(p => p.filePath);
+    const author = String(hi.author ?? '');
+    const msg = String(hi.subject ?? hi.message ?? '').trim().split('\n')[0];
+
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.gitCommitFileHeader(hash, author, msg, repoRoot, selectedFiles);
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
 }
 
 /**

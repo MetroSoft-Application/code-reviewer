@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewPrFiles } from './reviewDiff';
+import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewPrFiles, reviewGitCommit, addGitCommitToReviewList, reviewMultiGitCommit, reviewGitCommitFile } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -74,6 +74,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         reviewPrFiles
     );
 
+    /*
+     * VS Code Timeline ビューの Git コミットから単体レビューするコマンドを登録する
+     * 引数は Timeline の対象ファイル URI と GitTimelineItem
+     */
+    const reviewGitCommitCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewGitCommit',
+        reviewGitCommit
+    );
+
+    /*
+     * VS Code Timeline ビューの Git コミットをレビューリストに追加するコマンドを登録する
+     */
+    const addGitCommitToReviewListCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.addGitCommitToReviewList',
+        addGitCommitToReviewList
+    );
+
+    /*
+     * Git コミットレビューリストに登録されたコミットをまとめてレビューするコマンドを登録する
+     */
+    const reviewMultiGitCommitCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewMultiGitCommit',
+        reviewMultiGitCommit
+    );
+
+    /*
+     * Git コミット内の特定ファイルを選択してレビューするコマンドを登録する
+     * QuickPick でファイルを選択し、選択ファイルの diff を Copilot Chat に送信する
+     */
+    const reviewGitCommitFileCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewGitCommitFile',
+        reviewGitCommitFile
+    );
+
     context.subscriptions.push(
         reviewDiffCommand,
         reviewRevisionCommand,
@@ -81,7 +115,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         addToReviewListCommand,
         reviewMultiCommitCommand,
         reviewGitGroupsCommand,
-        reviewPrFilesCommand
+        reviewPrFilesCommand,
+        reviewGitCommitCommand,
+        addGitCommitToReviewListCommand,
+        reviewMultiGitCommitCommand,
+        reviewGitCommitFileCommand
     );
 }
 

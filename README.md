@@ -57,6 +57,16 @@ This action is added as a separate header command, so the built-in **Code Review
 3. Select **"Review Section with Copilot"**
 4. Copilot Chat opens with Git commands for the selected sections (for example, `git -C "<repo>" diff` / `git -C "<repo>" diff --cached`) so Copilot can collect and review all diffs in batch
 
+### Review Git Commits from the Graph Section of Git History
+
+![demo](./resources/demo2.gif)
+
+1. Open the SCM view (Source Control panel)
+2. Open the Git Graph view of your repository (you can use the Git Graph extension or any other extension that provides a graph view)
+3. Right-click a commit node in the graph
+4. Select **"Review with Copilot"**
+5. GitHub Copilot Chat opens with the commit diff pre-filled as a review request
+
 ### Review SVN Revision History
 
 1. Install the [svn-scm](https://marketplace.visualstudio.com/items?itemName=johnstoncode.svn-scm) extension

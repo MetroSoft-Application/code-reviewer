@@ -2,7 +2,7 @@
   "name": "copilot-scm-code-reviewer",
   "displayName": "Code Reviewer for Copilot",
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "publisher": "MetroSoft-Application",
   "icon": "resources/icon.png",
   "repository": {
@@ -25,14 +25,10 @@
   ],
   "activationEvents": [
     "workspaceContains:.git",
-    "onCommand:copilot-scm-code-reviewer.reviewDiff",
-    "onCommand:copilot-scm-code-reviewer.reviewRevision",
-    "onCommand:copilot-scm-code-reviewer.reviewCommit",
-    "onCommand:copilot-scm-code-reviewer.addToReviewList",
-    "onCommand:copilot-scm-code-reviewer.reviewMultiCommit",
-    "onCommand:copilot-scm-code-reviewer.reviewGitGroups",
-    "onCommand:copilot-scm-code-reviewer.reviewPrFiles",
     "onStartupFinished"
+  ],
+  "enabledApiProposals": [
+    "contribSourceControlHistoryItemMenu"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -65,6 +61,22 @@
         "command": "copilot-scm-code-reviewer.reviewPrFiles",
         "title": "Review Changed Files",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewGitCommit",
+        "title": "Review Commit with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.addGitCommitToReviewList",
+        "title": "Add Commit to Review List"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewMultiGitCommit",
+        "title": "Review Multi Commit with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewGitCommitFile",
+        "title": "Review File in Commit with Copilot"
       }
     ],
     "menus": {
@@ -130,6 +142,28 @@
         {
           "command": "copilot-scm-code-reviewer.reviewMultiCommit",
           "when": "view == repolog && viewItem == commit && copilot-scm-code-reviewer.hasReviewList",
+          "group": "navigation"
+        }
+      ],
+      "scm/historyItem/context": [
+        {
+          "command": "copilot-scm-code-reviewer.reviewGitCommit",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.addGitCommitToReviewList",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewMultiGitCommit",
+          "when": "scmProvider == git && copilot-scm-code-reviewer.hasGitReviewList",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewGitCommitFile",
+          "when": "scmProvider == git",
           "group": "navigation"
         }
       ]
