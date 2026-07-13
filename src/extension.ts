@@ -5,6 +5,7 @@
  */
 import * as vscode from 'vscode';
 import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewPrFiles, reviewGitCommit, addGitCommitToReviewList, reviewMultiGitCommit, reviewGitCommitFile } from './reviewDiff';
+import { reviewSvnGroups } from './reviewSvnGroups';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -58,11 +59,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     /*
-     * SCM の変更セクション（変更/ステージ）から一括レビューするコマンドを登録する
+     * Git SCM の変更セクション（変更/ステージ）から一括レビューするコマンドを登録する
      */
     const reviewGitGroupsCommand = vscode.commands.registerCommand(
         'copilot-scm-code-reviewer.reviewGitGroups',
         reviewGitGroups
+    );
+
+    /*
+     * SVN SCM のローカル変更セクションから一括レビューするコマンドを登録する
+     */
+    const reviewSvnGroupsCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewSvnGroups',
+        reviewSvnGroups
     );
 
     /*
@@ -115,6 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         addToReviewListCommand,
         reviewMultiCommitCommand,
         reviewGitGroupsCommand,
+        reviewSvnGroupsCommand,
         reviewPrFilesCommand,
         reviewGitCommitCommand,
         addGitCommitToReviewListCommand,
