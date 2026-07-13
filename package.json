@@ -25,6 +25,7 @@
   ],
   "activationEvents": [
     "workspaceContains:.git",
+    "workspaceContains:.svn",
     "onStartupFinished"
   ],
   "enabledApiProposals": [
@@ -56,6 +57,10 @@
       {
         "command": "copilot-scm-code-reviewer.reviewGitGroups",
         "title": "Review Section with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewSvnGroups",
+        "title": "Review Local Changes with Copilot"
       },
       {
         "command": "copilot-scm-code-reviewer.reviewPrFiles",
@@ -115,6 +120,11 @@
         {
           "command": "copilot-scm-code-reviewer.reviewGitGroups",
           "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewSvnGroups",
+          "when": "scmProvider == svn",
           "group": "navigation"
         }
       ],
