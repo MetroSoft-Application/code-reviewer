@@ -4,13 +4,19 @@ import { reviewDiff } from './reviewDiff';
 type SvnScmGroup = {
     id?: string;
     label?: string;
-    resourceStates?: vscode.SourceControlResourceState[];
+    resourceStates?: unknown[];
 };
 
 function isSourceControlResourceState(value: unknown): value is vscode.SourceControlResourceState {
-    return typeof value === 'object' && value !== null &&
-        'resourceUri' in value &&
-        (value as vscode.SourceControlResourceState).resourceUri instanceof vscode.Uri;
+    if (typeof value !== 'object' || value === null || !('resourceUri' in value)) {
+        return false;
+    }
+
+    const resourceUri = (value as { resourceUri?: unknown; }).resourceUri;
+    return typeof resourceUri === 'object' && resourceUri !== null &&
+        'scheme' in resourceUri &&
+        'fsPath' in resourceUri &&
+        'toString' in resourceUri;
 }
 
 function isRemoteGroup(group: SvnScmGroup): boolean {
