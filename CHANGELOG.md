@@ -1,3 +1,15 @@
+## [1.1.2]
+
+- Added a command-palette fallback to review a copied Git commit hash when the SCM history menu proposal is unavailable
+- Enabled the SCM history menu proposal in the extension development host
+- Moved "Review File in Commit with Copilot" from the commit menu to the history-change file menu
+- Review File now reviews only the file selected in the SCM graph without opening a file picker
+
+## [1.1.1]
+
+- Added "Review Section with Copilot" to SVN SCM section headers (Changes / Unversioned / Remote Changes)
+- Added section-aware SVN collection commands so local, unversioned, and remote changes can be reviewed in one batch
+
 ## [1.1.0]
 
 - Added a feature that allows reviewing commits individually from the graph section of the Git history

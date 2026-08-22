@@ -8,7 +8,7 @@ Supports both Git and SVN repositories.
 - **Context Menu Integration**: Right-click any file in the SCM view and select "Review with Copilot" to request a code review instantly
 - **Multi-Selection Support**: Select multiple files and request a batch review in one action
 - **GitHub Pull Request Panel Integration**: Adds a separate **Review Changed Files** action to the **Changed Files** header in the GitHub Pull Request panel without replacing the built-in Code Review button
-- **Section Review (Git)**: Right-click the **Changes** or **Staged Changes** section header and select "Review Section with Copilot" to send Git diff commands for batch review
+- **Section Review (Git/SVN)**: Right-click a Git or SVN change section header and select "Review Section with Copilot" to review the entire section in one batch
 - **Git and SVN Support**: Automatically detects Git and SVN repositories and retrieves the appropriate diff
 - **New and Deleted File Support**: Correctly handles untracked (new) files and deleted files
 - **Multi-Language Prompts**: Supports Japanese, English, Chinese (Simplified), Korean, French, German, and Spanish
@@ -56,6 +56,13 @@ This action is added as a separate header command, so the built-in **Code Review
 2. Right-click the **Changes** section or **Staged Changes** section header
 3. Select **"Review Section with Copilot"**
 4. Copilot Chat opens with Git commands for the selected sections (for example, `git -C "<repo>" diff` / `git -C "<repo>" diff --cached`) so Copilot can collect and review all diffs in batch
+
+### Review SVN Sections in Batch (Changes / Unversioned / Remote Changes)
+
+1. Open the SCM view (Source Control panel)
+2. Right-click the **Changes**, **Unversioned**, or **Remote Changes** section header of an SVN repository
+3. Select **"Review Section with Copilot"**
+4. Copilot Chat collects every change in that section and reviews them together. Unversioned files are treated as newly added files
 
 ### Review Git Commits from the Graph Section of Git History
 

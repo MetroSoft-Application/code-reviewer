@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { GitExtension, Repository, Change } from './api/git';
 import type { GitHubPRAPI, ReviewerComments, ReviewerCommentsContext } from './api/githubPr';
-import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry, GitReviewListEntry } from './promptTemplates';
+import { PROMPT_TEMPLATES, DEFAULT_LANG, resolveLanguage, ReviewListEntry, GitReviewListEntry, SvnGroupRoots } from './promptTemplates';
 
 /*
  * Status は git.d.ts で const enum として定義されているため、
@@ -721,10 +721,10 @@ function buildPrompt(
  * VS Code の SCM メニュー引数は公開API型が限定的なため、
  * 必要なプロパティのみをダックタイピングで参照する。
  */
-type GitScmGroup = {
-    /** グループID（例: workingTree / index） */
+type ScmResourceGroup = {
+    /** グループID（例: workingTree / index / changes / unversioned / remotechanges） */
     id?: string;
-    /** 表示ラベル（例: Changes / Staged Changes） */
+    /** 表示ラベル（例: Changes / Staged Changes / Unversioned / Remote Changes） */
     label?: string;
     /** グループ配下のリソース一覧 */
     resourceStates?: vscode.SourceControlResourceState[];
@@ -736,7 +736,7 @@ type GitScmGroup = {
  * @param group - SCM リソースグループ
  * @returns 判定結果（'staged' | 'unstaged'）。判定不能時は undefined
  */
-function resolveGitGroupKind(group: GitScmGroup): 'staged' | 'unstaged' | undefined {
+function resolveGitGroupKind(group: ScmResourceGroup): 'staged' | 'unstaged' | undefined {
     const id = (group.id ?? '').toLowerCase();
     const label = (group.label ?? '').toLowerCase();
 
@@ -766,7 +766,7 @@ function resolveGitGroupKind(group: GitScmGroup): 'staged' | 'unstaged' | undefi
  * @returns リポジトリルートのローカルパス。特定できない場合は undefined
  */
 function getGitRepoRootFromGroup(
-    group: GitScmGroup,
+    group: ScmResourceGroup,
     gitAPI: ReturnType<GitExtension['getAPI']>
 ): string | undefined {
     const uri = group.resourceStates?.[0]?.resourceUri;
@@ -776,41 +776,6 @@ function getGitRepoRootFromGroup(
 
     const repo = getRepositoryForUri(gitAPI, uri);
     return repo?.rootUri.fsPath;
-}
-
-/**
- * Git セクション一括レビュー用のコマンド実行プロンプトを構築する
- *
- * @param commands - Copilot に実行させる git コマンド一覧
- * @returns Chat 送信用プロンプト文字列
- */
-function buildGitGroupCommandPrompt(commands: string[]): string {
-    const lang = resolveLanguage();
-
-    const textByLang: Record<string, { intro: string; run: string; done: string; }> = {
-        ja: {
-            intro: 'Source Control の選択セクション（変更/ステージ）の差分をまとめてコードレビューしてください。',
-            run: '以下のコマンドをターミナルですべて実行して差分を収集してください。',
-            done: '全差分を収集したら、それらを一括でレビューし、各ファイルについて問題点・改善案・良い点を具体的に指摘してください。',
-        },
-        en: {
-            intro: 'Please review diffs from the selected Source Control sections (Changes/Staged Changes) together.',
-            run: 'Run all commands below in the terminal to collect the diffs.',
-            done: 'After collecting all diffs, review them in one batch and for each file point out issues, improvements, and good points specifically.',
-        },
-    };
-
-    const text = textByLang[lang] ?? textByLang.en;
-    return [
-        text.intro,
-        '',
-        text.run,
-        '```',
-        ...commands,
-        '```',
-        '',
-        text.done,
-    ].join('\n');
 }
 
 /**
@@ -829,7 +794,7 @@ export async function reviewGitGroups(
     }
 
     const targets = [group, ...selectedGroups]
-        .filter((item): item is GitScmGroup => !!item)
+        .filter((item): item is ScmResourceGroup => !!item)
         .filter((item, index, list) =>
             list.findIndex(g => (g.id ?? '') === (item.id ?? '') && (g.label ?? '') === (item.label ?? '')) === index
         );
@@ -866,10 +831,88 @@ export async function reviewGitGroups(
         return;
     }
 
-    const prompt = buildGitGroupCommandPrompt([...commands]);
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+    const prompt = template.gitGroupHeader([...commands]);
 
     await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: prompt,
+    });
+}
+
+type SvnGroupKind = 'local' | 'unversioned' | 'remote';
+
+/** SVN SCM のグループ ID から差分の取得方法を判定する */
+function resolveSvnGroupKind(group: ScmResourceGroup): SvnGroupKind | undefined {
+    const id = (group.id ?? '').toLowerCase();
+    const label = (group.label ?? '').toLowerCase();
+
+    if (id === 'remotechanges' || label.includes('remote changes') || label.includes('リモート')) {
+        return 'remote';
+    }
+
+    if (id === 'unversioned' || label.includes('unversioned') || label.includes('未管理')) {
+        return 'unversioned';
+    }
+
+    if (id === 'changes' || label === 'changes' || label === '変更') {
+        return 'local';
+    }
+
+    return undefined;
+}
+
+/**
+ * SVN SCM の Changes / Unversioned / Remote Changes 等のセクションを一括レビューする。
+ * ワーキングコピー単位のコマンドで、Copilot がセクション全体の差分または内容を収集する。
+ */
+export async function reviewSvnGroups(
+    group: unknown,
+    ...selectedGroups: unknown[]
+): Promise<void> {
+    const targets = [group, ...selectedGroups]
+        .filter((item): item is ScmResourceGroup => !!item)
+        .filter((item, index, list) => {
+            const firstUri = item.resourceStates?.[0]?.resourceUri.toString() ?? '';
+            return list.findIndex(candidate =>
+                candidate.id === item.id &&
+                candidate.label === item.label &&
+                (candidate.resourceStates?.[0]?.resourceUri.toString() ?? '') === firstUri
+            ) === index;
+        });
+
+    const resolvedGroups = targets.flatMap(target => {
+        const kind = resolveSvnGroupKind(target);
+        if (!kind) {
+            return [];
+        }
+
+        const roots = (target.resourceStates ?? [])
+            .map(resource => findScmRoot(resource.resourceUri.fsPath))
+            .filter((scmInfo): scmInfo is { root: string; type: 'svn'; } => scmInfo?.type === 'svn')
+            .map(scmInfo => scmInfo.root)
+            .filter((root, index, list) => list.indexOf(root) === index);
+
+        return roots.length > 0 ? [{ kind, roots }] : [];
+    });
+
+    if (resolvedGroups.length === 0) {
+        vscode.window.showWarningMessage(
+            'Could not find files in the selected SVN section. Try right-clicking Changes, Unversioned, or Remote Changes.'
+        );
+        return;
+    }
+
+    const roots: SvnGroupRoots = {
+        local: [...new Set(resolvedGroups.filter(group => group.kind === 'local').flatMap(group => group.roots))],
+        remote: [...new Set(resolvedGroups.filter(group => group.kind === 'remote').flatMap(group => group.roots))],
+        unversioned: [...new Set(resolvedGroups.filter(group => group.kind === 'unversioned').flatMap(group => group.roots))],
+    };
+    const lang = resolveLanguage();
+    const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: template.svnGroupHeader(roots),
     });
 }
 
@@ -1415,17 +1458,22 @@ const gitReviewList: GitReviewListEntry[] = [];
  *
  * @param item - VS Code の SourceControlHistoryItem（id プロパティに commit hash を含む）
  */
-export async function reviewGitCommit(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+function normalizeGitCommitHash(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+
+    const hash = value.trim();
+    return /^[0-9a-f]{7,40}$/i.test(hash) ? hash : undefined;
+}
+
+async function reviewGitCommitByHash(
+    hash: string,
+    details?: Record<string, any>
+): Promise<void> {
     const gitAPI = getGitAPI();
     if (!gitAPI) {
         vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
-        return;
-    }
-
-    const hi = historyItem as Record<string, any>;
-    const hash: string | undefined = hi?.id;
-    if (!hash || hash.length < 7) {
-        vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
         return;
     }
 
@@ -1435,14 +1483,71 @@ export async function reviewGitCommit(_scmProvider: unknown, historyItem: unknow
         return;
     }
 
-    const author = String(hi.author ?? '');
-    const msg = String(hi.subject ?? hi.message ?? '').trim().split('\n')[0];
+    let author = String(details?.author ?? '').trim();
+    let msg = String(details?.subject ?? details?.message ?? '').trim().split('\n')[0];
+
+    // コマンドパレットから起動した場合は SourceControlHistoryItem が渡されないため、
+    // Git API からコミット情報を補完する。
+    if (!author || !msg) {
+        try {
+            const commit = await repo.getCommit(hash);
+            author ||= String(commit.authorName ?? '');
+            msg ||= String(commit.message ?? '').trim().split('\n')[0];
+        } catch {
+            vscode.window.showErrorMessage('選択した Git コミットを読み込めませんでした。');
+            return;
+        }
+    }
+
     const repoRoot = repo.rootUri.fsPath;
     const lang = resolveLanguage();
     const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
     const prompt = template.gitCommitHeader(hash, author, msg, repoRoot);
 
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+}
+
+export async function reviewGitCommit(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+    const hi = historyItem as Record<string, any>;
+    const hash = normalizeGitCommitHash(hi?.id);
+    if (!hash) {
+        vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
+        return;
+    }
+
+    await reviewGitCommitByHash(hash, hi);
+}
+
+/**
+ * 通常の VS Code で提案 API を有効化できない場合の代替コマンド。
+ * SCM Graph の「コミット ハッシュのコピー」後に実行する。
+ */
+export async function reviewGitCommitFromClipboard(): Promise<void> {
+    let clipboardText = '';
+    try {
+        clipboardText = await vscode.env.clipboard.readText();
+    } catch {
+        // クリップボードを読めない場合は入力ダイアログにフォールバックする。
+    }
+
+    let hash = normalizeGitCommitHash(clipboardText);
+    if (!hash) {
+        const input = await vscode.window.showInputBox({
+            title: 'Review Git Commit with Copilot',
+            prompt: 'Enter the Git commit hash to review.',
+            placeHolder: '40-character commit hash',
+            validateInput: value => normalizeGitCommitHash(value)
+                ? undefined
+                : 'Enter a Git commit hash with 7 to 40 hexadecimal characters.',
+        });
+        hash = normalizeGitCommitHash(input);
+    }
+
+    if (!hash) {
+        return;
+    }
+
+    await reviewGitCommitByHash(hash);
 }
 
 /**
@@ -1508,13 +1613,58 @@ export async function reviewMultiGitCommit(_item: unknown): Promise<void> {
 }
 
 /**
- * ソース管理履歴ビューで Git コミット内のファイルを選択して個別にレビューするコマンドハンドラー
- * QuickPick でファイルを選択し、選択ファイルの diff を Copilot Chat に送信する
- *
- * @param _scmProvider - VS Code が渡す SCM プロバイダー（未使用）
- * @param historyItem - VS Code の SourceControlHistoryItem
+ * SCM Graph の変更ファイル行から、選択されたファイルだけをレビューする。
+ * コミット行のメニューとは別のコンテキストで呼び出され、
+ * `historyItem` と `historyItemChange` の2つを受け取る。
  */
-export async function reviewGitCommitFile(_scmProvider: unknown, historyItem: unknown): Promise<void> {
+function parseHistoryChangeUri(value: unknown): vscode.Uri | undefined {
+    if (!value || typeof value !== 'object') {
+        return undefined;
+    }
+
+    const candidate = value as {
+        scheme?: unknown;
+        path?: unknown;
+        toString?: () => string;
+    };
+
+    if (typeof candidate.scheme !== 'string' || typeof candidate.path !== 'string') {
+        return undefined;
+    }
+
+    try {
+        const serialized = typeof candidate.toString === 'function'
+            ? candidate.toString()
+            : `${candidate.scheme}:${candidate.path}`;
+        return vscode.Uri.parse(serialized, true);
+    } catch {
+        return undefined;
+    }
+}
+
+function getHistoryChangeFilePath(repoRoot: string, historyItemChange: unknown): string | undefined {
+    const change = historyItemChange as Record<string, unknown> | undefined;
+    const resourceUri = parseHistoryChangeUri(change?.uri)
+        ?? parseHistoryChangeUri(change?.modifiedUri)
+        ?? parseHistoryChangeUri(change?.originalUri);
+
+    if (!resourceUri) {
+        return undefined;
+    }
+
+    const relativePath = path.relative(repoRoot, resourceUri.fsPath);
+    if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+        return undefined;
+    }
+
+    return relativePath.split(path.sep).join('/');
+}
+
+export async function reviewGitCommitFile(
+    _scmProvider: unknown,
+    historyItem: unknown,
+    historyItemChange?: unknown
+): Promise<void> {
     const gitAPI = getGitAPI();
     if (!gitAPI) {
         vscode.window.showErrorMessage('Git 拡張機能が利用できません。');
@@ -1522,8 +1672,8 @@ export async function reviewGitCommitFile(_scmProvider: unknown, historyItem: un
     }
 
     const hi = historyItem as Record<string, any>;
-    const hash: string | undefined = hi?.id;
-    if (!hash || hash.length < 7) {
+    const hash = normalizeGitCommitHash(hi?.id);
+    if (!hash) {
         vscode.window.showErrorMessage('選択したコミットのハッシュを取得できませんでした。');
         return;
     }
@@ -1535,6 +1685,34 @@ export async function reviewGitCommitFile(_scmProvider: unknown, historyItem: un
     }
 
     const repoRoot = repo.rootUri.fsPath;
+
+    if (historyItemChange) {
+        const filePath = getHistoryChangeFilePath(repoRoot, historyItemChange);
+        if (!filePath) {
+            vscode.window.showErrorMessage('選択された変更ファイルのパスを取得できませんでした。ファイル行から実行してください。');
+            return;
+        }
+
+        let author = String(hi.author ?? '').trim();
+        let msg = String(hi.subject ?? hi.message ?? '').trim().split('\n')[0];
+        if (!author || !msg) {
+            try {
+                const commit = await repo.getCommit(hash);
+                author ||= String(commit.authorName ?? '');
+                msg ||= String(commit.message ?? '').trim().split('\n')[0];
+            } catch {
+                vscode.window.showErrorMessage('選択された Git コミットを読み込めませんでした。');
+                return;
+            }
+        }
+
+        const lang = resolveLanguage();
+        const template = PROMPT_TEMPLATES[lang] ?? PROMPT_TEMPLATES[DEFAULT_LANG];
+        const prompt = template.gitCommitFileHeader(hash, author, msg, repoRoot, [filePath]);
+
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+        return;
+    }
 
     // コミット内の変更ファイル一覧を取得する
     const filesOutput = await new Promise<string>((resolve) => {

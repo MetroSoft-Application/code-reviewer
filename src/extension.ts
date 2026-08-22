@@ -4,7 +4,7 @@
  * activate / deactivateライフサイクルを管理する
  */
 import * as vscode from 'vscode';
-import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewPrFiles, reviewGitCommit, addGitCommitToReviewList, reviewMultiGitCommit, reviewGitCommitFile } from './reviewDiff';
+import { reviewDiff, reviewRevision, reviewCommit, addToReviewList, reviewMultiCommit, reviewGitGroups, reviewSvnGroups, reviewPrFiles, reviewGitCommit, reviewGitCommitFromClipboard, addGitCommitToReviewList, reviewMultiGitCommit, reviewGitCommitFile } from './reviewDiff';
 
 /**
  * 拡張機能の起動時に呼び出される
@@ -66,6 +66,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     /*
+     * SVN SCM の変更セクションから一括レビューするコマンドを登録する
+     */
+    const reviewSvnGroupsCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewSvnGroups',
+        reviewSvnGroups
+    );
+
+    /*
      * PR の変更ファイルから選択してプレビューレビューするコマンドを登録する
      * SCM タイトルバーのボタンまたはコマンドパレットから呼び出す
      */
@@ -81,6 +89,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const reviewGitCommitCommand = vscode.commands.registerCommand(
         'copilot-scm-code-reviewer.reviewGitCommit',
         reviewGitCommit
+    );
+
+    /*
+     * 提案 API を有効化できない通常の VS Code で使用するフォールバック。
+     * SCM Graph でコミットハッシュをコピーした後、コマンドパレットから呼び出す。
+     */
+    const reviewGitCommitFromClipboardCommand = vscode.commands.registerCommand(
+        'copilot-scm-code-reviewer.reviewGitCommitFromClipboard',
+        reviewGitCommitFromClipboard
     );
 
     /*
@@ -115,8 +132,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         addToReviewListCommand,
         reviewMultiCommitCommand,
         reviewGitGroupsCommand,
+        reviewSvnGroupsCommand,
         reviewPrFilesCommand,
         reviewGitCommitCommand,
+        reviewGitCommitFromClipboardCommand,
         addGitCommitToReviewListCommand,
         reviewMultiGitCommitCommand,
         reviewGitCommitFileCommand

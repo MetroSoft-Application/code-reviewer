@@ -2,7 +2,7 @@
   "name": "copilot-scm-code-reviewer",
   "displayName": "Code Reviewer for Copilot",
   "description": "A VS Code extension that sends SCM git diffs to GitHub Copilot Chat for code review.",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "publisher": "MetroSoft-Application",
   "icon": "resources/icon.png",
   "repository": {
@@ -58,6 +58,10 @@
         "title": "Review Section with Copilot"
       },
       {
+        "command": "copilot-scm-code-reviewer.reviewSvnGroups",
+        "title": "Review Section with Copilot"
+      },
+      {
         "command": "copilot-scm-code-reviewer.reviewPrFiles",
         "title": "Review Changed Files",
         "icon": "$(comment-discussion)"
@@ -65,6 +69,10 @@
       {
         "command": "copilot-scm-code-reviewer.reviewGitCommit",
         "title": "Review Commit with Copilot"
+      },
+      {
+        "command": "copilot-scm-code-reviewer.reviewGitCommitFromClipboard",
+        "title": "Review Copied Git Commit with Copilot"
       },
       {
         "command": "copilot-scm-code-reviewer.addGitCommitToReviewList",
@@ -80,6 +88,15 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "copilot-scm-code-reviewer.reviewGitCommitFromClipboard"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewGitCommitFile",
+          "when": "false"
+        }
+      ],
       "scm/resourceState/context": [
         {
           "command": "copilot-scm-code-reviewer.reviewDiff",
@@ -115,6 +132,11 @@
         {
           "command": "copilot-scm-code-reviewer.reviewGitGroups",
           "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "copilot-scm-code-reviewer.reviewSvnGroups",
+          "when": "scmProvider == svn && (scmResourceGroup == changes || scmResourceGroup == unversioned || scmResourceGroup == remotechanges)",
           "group": "navigation"
         }
       ],
@@ -160,7 +182,9 @@
           "command": "copilot-scm-code-reviewer.reviewMultiGitCommit",
           "when": "scmProvider == git && copilot-scm-code-reviewer.hasGitReviewList",
           "group": "navigation"
-        },
+        }
+      ],
+      "scm/historyItemChange/context": [
         {
           "command": "copilot-scm-code-reviewer.reviewGitCommitFile",
           "when": "scmProvider == git",

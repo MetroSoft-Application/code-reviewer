@@ -6,7 +6,8 @@
             "type": "extensionHost",
             "request": "launch",
             "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}"
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "--enable-proposed-api=MetroSoft-Application.copilot-scm-code-reviewer"
             ],
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
@@ -22,7 +23,8 @@
             "request": "launch",
             "args": [
                 "--extensionDevelopmentPath=${workspaceFolder}",
-                "--extensionTestsPath=${workspaceFolder}/dist/test/suite/index"
+                "--extensionTestsPath=${workspaceFolder}/dist/test/suite/index",
+                "--enable-proposed-api=MetroSoft-Application.copilot-scm-code-reviewer"
             ],
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
