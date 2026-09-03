@@ -1,3 +1,8 @@
+## [1.1.3]
+
+- Added an SCM title-bar fallback to review a copied Git commit hash when the SCM history menu proposal is unavailable
+- Fixed the SCM graph menu visibility by removing the resource-only `scmProvider` condition from history items
+
 ## [1.1.2]
 
 - Added a command-palette fallback to review a copied Git commit hash when the SCM history menu proposal is unavailable

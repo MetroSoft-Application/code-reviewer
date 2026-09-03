@@ -14,6 +14,7 @@ Supports both Git and SVN repositories.
 - **Multi-Language Prompts**: Supports Japanese, English, Chinese (Simplified), Korean, French, German, and Spanish
 - **Automatic Language Detection**: Selects the review language automatically based on the VS Code UI language
 - **Custom Prompts**: Configure your own review prompt per language
+- **Git Graph Commit Review**: Right-click a commit in the built-in SCM Graph and select "Review Commit with Copilot"
 - **SVN History Review**: Right-click a commit in the SVN FILE HISTORY or REPOSITORIES view (svn-scm extension) and select "Review with Copilot" to review a specific revision's diff
 - **SVN Commit Review**: Right-click a commit row in the SVN REPOSITORIES view and select "Review Commit with Copilot" — Copilot executes `svn diff -c` itself and reviews the entire commit diff
 - **SVN Multi-Commit Review**: Add multiple commits to a review list via "Add to Review List", then run "Review Multi Commit with Copilot" to review all accumulated commits together in one request. Revisions are always sent in ascending order regardless of the order they were added
@@ -64,15 +65,17 @@ This action is added as a separate header command, so the built-in **Code Review
 3. Select **"Review Section with Copilot"**
 4. Copilot Chat collects every change in that section and reviews them together. Unversioned files are treated as newly added files
 
-### Review Git Commits from the Graph Section of Git History
+### Review Git Commits from the Built-in SCM Graph
 
 ![demo](./resources/demo2.gif)
 
 1. Open the SCM view (Source Control panel)
-2. Open the Git Graph view of your repository (you can use the Git Graph extension or any other extension that provides a graph view)
+2. Expand the **Graph** section under the Git repository
 3. Right-click a commit node in the graph
-4. Select **"Review with Copilot"**
+4. Select **"Review Commit with Copilot"**
 5. GitHub Copilot Chat opens with the commit diff pre-filled as a review request
+
+The graph menu is provided by a VS Code proposed API. When that menu is unavailable, select **Copy Commit Hash** on the commit, then run **Review Copied Git Commit with Copilot** from the SCM title bar or Command Palette.
 
 ### Review SVN Revision History
 

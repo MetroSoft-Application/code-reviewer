@@ -74,6 +74,35 @@ async function findRepoForCommit(
     return gitAPI.repositories[0];
 }
 
+/**
+ * SCM履歴メニューから渡される SourceControl を優先して対象リポジトリを解決する。
+ * 複数リポジトリのワークスペースでは、コミットハッシュだけで検索すると
+ * 別リポジトリの同一ハッシュを選ぶ可能性があるため、グラフのルートを利用する。
+ */
+async function findRepoForHistoryItem(
+    gitAPI: ReturnType<GitExtension['getAPI']>,
+    scmProvider: unknown,
+    hash: string
+): Promise<Repository | undefined> {
+    const provider = scmProvider as { rootUri?: { fsPath?: unknown } } | undefined;
+    const providerRoot = typeof provider?.rootUri?.fsPath === 'string'
+        ? provider.rootUri.fsPath
+        : undefined;
+
+    if (providerRoot) {
+        const normalizedProviderRoot = path.resolve(providerRoot).toLowerCase();
+        const repository = gitAPI.repositories.find(repo =>
+            path.resolve(repo.rootUri.fsPath).toLowerCase() === normalizedProviderRoot
+        );
+
+        if (repository) {
+            return repository;
+        }
+    }
+
+    return findRepoForCommit(gitAPI, hash);
+}
+
 type InternalPrFileChange = {
     fileName: string;
     previousFileName?: string;
@@ -1469,7 +1498,8 @@ function normalizeGitCommitHash(value: unknown): string | undefined {
 
 async function reviewGitCommitByHash(
     hash: string,
-    details?: Record<string, any>
+    details?: Record<string, any>,
+    scmProvider?: unknown
 ): Promise<void> {
     const gitAPI = getGitAPI();
     if (!gitAPI) {
@@ -1477,7 +1507,7 @@ async function reviewGitCommitByHash(
         return;
     }
 
-    const repo = await findRepoForCommit(gitAPI, hash);
+    const repo = await findRepoForHistoryItem(gitAPI, scmProvider, hash);
     if (!repo) {
         vscode.window.showErrorMessage('Git リポジトリが見つかりません。');
         return;
@@ -1515,7 +1545,7 @@ export async function reviewGitCommit(_scmProvider: unknown, historyItem: unknow
         return;
     }
 
-    await reviewGitCommitByHash(hash, hi);
+    await reviewGitCommitByHash(hash, hi, _scmProvider);
 }
 
 /**
